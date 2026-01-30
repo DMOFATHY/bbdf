@@ -4,9 +4,9 @@ import os
 import shutil
 
 # --- إعداد الصفحة وتنسيق الاتجاه (RTL) ---
-st.set_page_config(page_title="المحول المجاني + صدقة جارية", page_icon="🤲", layout="centered")
+st.set_page_config(page_title="المحول المجاني + صدقة جارية", page_icon="🤲", layout="wide") # استخدام layout="wide" لمساحة أكبر للكروت
 
-# إضافة CSS لجعل النصوص عربية ومنسقة وشكل الكروت
+# إضافة CSS لجعل النصوص عربية ومنسقة وشكل الكروت الأفقية
 st.markdown("""
 <style>
     /* تحويل الاتجاه لليمين */
@@ -14,28 +14,66 @@ st.markdown("""
         direction: rtl;
         text-align: right;
     }
-    /* تنسيق كارت الدعاء */
-    .dua-card {
-        background-color: #f8f9fa;
-        padding: 20px;
+    
+    /* تنسيق الكارت الكامل (الصورة + النص) */
+    .full-card {
+        background-color: white;
         border-radius: 15px;
-        border-right: 5px solid #28a745;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin-bottom: 25px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        overflow: hidden; /* لضمان انحناء الصورة مع الكارت */
+        margin-bottom: 20px;
+        border: 1px solid #eee;
+        height: 100%; /* محاولة لجعل الكروت بنفس الطول */
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* تنسيق الصورة داخل الكارت */
+    .card-img-container img {
+        width: 100%;
+        height: 250px !important; /* ارتفاع ثابت للصور لتكون مربعة/متناسقة */
+        object-fit: cover; /* لملء الإطار دون مط الصورة */
+        border-bottom: 3px solid #28a745;
+    }
+
+    /* تنسيق المحتوى النصي داخل الكارت */
+    .card-content {
+        padding: 15px;
         text-align: center;
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
-    .dua-text {
-        font-size: 18px;
-        color: #333;
-        line-height: 1.8;
-        margin-top: 10px;
-    }
-    .person-name {
-        font-size: 22px;
+
+    .person-name-title {
+        font-size: 20px;
         font-weight: bold;
-        color: #1a1a1a;
+        color: #2c3e50;
         margin-bottom: 10px;
     }
+
+    .dua-text-body {
+        font-size: 16px;
+        color: #555;
+        line-height: 1.6;
+        background-color: #f9fff9;
+        padding: 10px;
+        border-radius: 8px;
+    }
+
+    /* تنسيق الجملة الختامية */
+    .final-footer {
+        text-align: center;
+        margin-top: 40px;
+        padding: 20px;
+        background-color: #28a745;
+        color: white;
+        font-size: 22px;
+        font-weight: bold;
+        border-radius: 10px;
+    }
+    
     /* تنسيق العناوين */
     h1, h2, h3 {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -89,45 +127,66 @@ if uploaded_file is not None:
 
 st.markdown("---") # فاصل خطي
 
-# --- الجزء الثاني: صدقة جارية (الصور والدعاء) ---
+# --- الجزء الثاني: صدقة جارية (الكروت المتجاورة) ---
 
 st.header("🤲 صدقة جارية ونسألكم الدعاء")
 
-# دالة مساعدة لعرض الكارت
-def show_dua_card(image_file, name, dua_text):
-    try:
-        # عرض الصورة
-        st.image(image_file, use_container_width=True)
-        # عرض النص والدعاء داخل تصميم كارت
-        st.markdown(f"""
-        <div class="dua-card">
-            <div class="person-name">{name}</div>
-            <div class="dua-text">{dua_text}</div>
+# إنشاء 3 أعمدة متجاورة
+col1, col2, col3 = st.columns(3, gap="medium")
+
+# --- الكارت الأول (الجدة) ---
+with col1:
+    # نستخدم HTML مباشر لدمج الصورة والنص في كارت واحد متماسك
+    st.markdown("""
+    <div class="full-card">
+        <div class="card-img-container">
+            <img src="1000479933.jpg" alt="جدتي">
         </div>
-        """, unsafe_allow_html=True)
-    except:
-        st.warning(f"الصورة {image_file} غير موجودة، يرجى التأكد من رفعها.")
+        <div class="card-content">
+            <div class="person-name-title">جدتي (رحمها الله)</div>
+            <div class="dua-text-body">
+                اللهم ارحمها واغفر لها، واجعل قبرها روضة من رياض الجنة، وأسكنها الفردوس الأعلى بلا حساب ولا سابق عذاب.
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# 1. الجدة
-show_dua_card(
-    "1000479933.jpg",
-    "المغفور لها بإذن الله (جدتي)",
-    "اللهم ارحمها واغفر لها، واجعل قبرها روضة من رياض الجنة، ولا تجعله حفرة من حفر النار. اللهم أسكنها الفردوس الأعلى بلا حساب."
-)
+# --- الكارت الثاني (محمود) ---
+with col2:
+    st.markdown("""
+    <div class="full-card">
+        <div class="card-img-container">
+            <img src="1000479919.jpg" alt="محمود">
+        </div>
+        <div class="card-content">
+            <div class="person-name-title">محمود (رحمه الله)</div>
+            <div class="dua-text-body">
+                اللهم اغفر له وارحمه، وعافه واعف عنه، وأكرم نزله، ووسع مدخله، ونقه من الخطايا كما ينقى الثوب الأبيض من الدنس.
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# 2. محمود
-show_dua_card(
-    "1000479919.jpg",
-    "المغفور له بإذن الله (محمود)",
-    "اللهم اغفر له وارحمه، وعافه واعف عنه، وأكرم نزله، ووسع مدخله، ونقه من الخطايا كما ينقى الثوب الأبيض من الدنس."
-)
+# --- الكارت الثالث (أحمد) ---
+with col3:
+    st.markdown("""
+    <div class="full-card">
+        <div class="card-img-container">
+            <img src="1000479894.jpg" alt="أحمد">
+        </div>
+        <div class="card-content">
+            <div class="person-name-title">أحمد (عريس الجنة)</div>
+            <div class="dua-text-body">
+                اللهم إنه في ذمتك وحبل جوارك، فقه فتنة القبر وعذاب النار. اللهم عوض شبابه في الجنة، واجعله من الضاحكين المستبشرين.
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# 3. أحمد
-show_dua_card(
-    "1000479894.jpg",
-    "عريس الجنة (أحمد)",
-    "اللهم إنه في ذمتك وحبل جوارك، فقه فتنة القبر وعذاب النار. اللهم عوض شبابه في الجنة، واجعله من الضاحكين المستبشرين."
-)
 
-# تذييل الصفحة
-st.markdown("<div style='text-align: center; margin-top: 50px; color: #888;'>اللهم تقبل منا ومنكم صالح الأعمال</div>", unsafe_allow_html=True)
+# --- الجملة الختامية ---
+st.markdown("""
+<div class="final-footer">
+    هذا الموقع خالص لوجه الله وصدقة جارية
+</div>
+""", unsafe_allow_html=True)
