@@ -7,14 +7,19 @@ from pathlib import Path
 from datetime import datetime
 
 # ===================== إعدادات =====================
-APP_TITLE = "📄 Offline Office-to-PDF Converter"
-DEVELOPER = "Developed by Mohamed Fathy Abu El-Gelany"
+APP_TITLE_AR = "📄 محول الملفات إلى PDF"
+APP_TITLE_EN = "📄 Offline Office-to-PDF Converter"
+DEVELOPER = "تطوير: محمد فتحي أبو الجيلاني | Developed by Mohamed Fathy Abu El-Gelany"
+
 WORK_DIR = Path("temp_convert")
 USERS_FILE = Path("users.json")
 HISTORY_FILE = Path("history.json")
 ALLOWED_TYPES = ['docx','doc','pptx','ppt','xlsx','xls']
 
-FREE_LIMIT = 2  # Number of free conversions for guests
+GUEST_FIRST_FILE = 1
+GUEST_LIMIT = 5
+PAID_FILES = 100
+PAID_PRICE = 25  # EGP
 
 # ===================== أدوات =====================
 def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
@@ -25,156 +30,144 @@ users = load_json(USERS_FILE)
 history = load_json(HISTORY_FILE)
 
 # ===================== إعداد الصفحة =====================
-st.set_page_config(page_title=APP_TITLE, page_icon="📄")
+st.set_page_config(page_title=APP_TITLE_EN, page_icon="📄")
 
 st.markdown("""
 <style>
 .stApp { background:#F8FAFC; color:#0F172A; font-family:Arial; }
 h1,h2,h3 { color:#0F172A; }
-.stButton>button {
-    background:#22C55E; color:black;
-    border-radius:10px; font-weight:bold
-}
-.card {
-    background:#FFFFFF;
-    border:1px solid #22C55E;
-    padding:15px; border-radius:12px;
-    margin-bottom:10px; box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
-}
+.stButton>button { background:#22C55E; color:black; border-radius:10px; font-weight:bold }
+.card { background:#FFFFFF; border:1px solid #22C55E; padding:15px; border-radius:12px; margin-bottom:10px; box-shadow: 2px 2px 8px rgba(0,0,0,0.1); }
 </style>
 """, unsafe_allow_html=True)
 
 # ===================== Session =====================
 if "login" not in st.session_state: st.session_state.login = False
-if "guest_count" not in st.session_state: st.session_state.guest_count = 0
+if "guest_used" not in st.session_state: st.session_state.guest_used = 0
 if "visited" not in st.session_state: st.session_state.visited = False
+if "lang" not in st.session_state: st.session_state.lang = "ar"
+
+# ===================== لغة =====================
+lang = st.session_state.lang
+col1, col2 = st.columns(2)
+with col1: 
+    if st.button("🇦🇪 عربي"): st.session_state.lang="ar"; st.experimental_rerun()
+with col2: 
+    if st.button("🇬🇧 English"): st.session_state.lang="en"; st.experimental_rerun()
+
+def t(ar,en): return ar if st.session_state.lang=="ar" else en
 
 # ===================== تسجيل / إنشاء =====================
 if not st.session_state.login:
-    t1,t2 = st.tabs(["🔐 Login", "🆕 Register"])
-
+    t1,t2 = st.tabs([t("🔐 تسجيل الدخول","🔐 Login"), t("🆕 إنشاء حساب","🆕 Register")])
     with t1:
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.button("Login"):
-            if u in users and users[u]["pw"] == hash_pw(p):
-                st.session_state.login = True
-                st.session_state.user = u
+        u = st.text_input(t("اسم المستخدم","Username"))
+        p = st.text_input(t("كلمة السر","Password"), type="password")
+        if st.button(t("دخول","Login")):
+            if u in users and users[u]["pw"]==hash_pw(p):
+                st.session_state.login=True
+                st.session_state.user=u
                 st.rerun()
-            else:
-                st.error("Invalid credentials")
-
+            else: st.error(t("بيانات غير صحيحة","Invalid credentials"))
     with t2:
-        nu = st.text_input("New Username")
-        np = st.text_input("New Password", type="password")
-        if st.button("Create Account"):
-            if nu in users:
-                st.warning("Username already exists")
-            elif len(np)<4:
-                st.warning("Password too short")
+        nu = st.text_input(t("اسم مستخدم جديد","New Username"))
+        np = st.text_input(t("كلمة سر","New Password"), type="password")
+        if st.button(t("إنشاء الحساب","Create Account")):
+            if nu in users: st.warning(t("الاسم موجود","Username already exists"))
+            elif len(np)<4: st.warning(t("كلمة السر قصيرة","Password too short"))
             else:
                 users[nu] = {
                     "pw": hash_pw(np),
                     "created": datetime.now().strftime("%Y-%m-%d"),
-                    "count": 0
+                    "files_remaining": PAID_FILES,
+                    "total_converted": 0,
+                    "subscription_status": "Active",
+                    "subscription_date": datetime.now().strftime("%Y-%m-%d")
                 }
                 save_json(USERS_FILE, users)
-                st.success("Account created! Please login.")
-
+                st.success(t("تم إنشاء الحساب! يمكنك التحويل الآن","Account created! Unlimited conversions activated."))
     st.stop()
 
 # ===================== Sidebar =====================
 with st.sidebar:
-    st.write(f"👤 {st.session_state.user if st.session_state.login else 'Guest'}")
+    st.write(f"👤 {st.session_state.user if st.session_state.login else t('زائر','Guest')}")
     if st.session_state.login:
-        if st.button("🗑️ Delete Account"):
+        if st.button(t("🗑️ حذف الحساب","🗑️ Delete Account")):
             del users[st.session_state.user]
             save_json(USERS_FILE, users)
-            st.session_state.login = False
+            st.session_state.login=False
             st.rerun()
-    if st.button("🚪 Logout"):
-        st.session_state.login = False
+    if st.button(t("🚪 تسجيل الخروج","🚪 Logout")):
+        st.session_state.login=False
         st.rerun()
 
-# ===================== Charity message =====================
+# ===================== رسالة الصدقة =====================
 if not st.session_state.visited:
-    st.session_state.visited = True
-    st.markdown("""
-    <div class='card'>
-    🕊️ <b>Sadaqa Jariya for my grandmother</b><br><br>
-    May Allah forgive her, have mercy, and make this action in her reward balance 🤍
-    </div>
-    """, unsafe_allow_html=True)
+    st.session_state.visited=True
+    st.markdown(f"<div class='card'>🕊️ {t('صدقة جارية على روح جدتي','Sadaqa Jariya for my grandmother 💖')}</div>", unsafe_allow_html=True)
 
 # ===================== Header =====================
-st.title(APP_TITLE)
+st.title(t(APP_TITLE_AR,APP_TITLE_EN))
 st.caption(DEVELOPER)
 st.divider()
 
-# ===================== File Conversion =====================
-uploaded = st.file_uploader("📤 Select your file", type=ALLOWED_TYPES)
+# ===================== التحويل =====================
+uploaded = st.file_uploader(t("📤 اختر الملف","📤 Select your file"), type=ALLOWED_TYPES)
 
 def convert(file):
     WORK_DIR.mkdir(exist_ok=True)
-    path = WORK_DIR / file.name.replace(" ", "_")
+    path = WORK_DIR / file.name.replace(" ","_")
     open(path,"wb").write(file.getbuffer())
-    subprocess.run([
-        "libreoffice","--headless",
-        "--convert-to","pdf",
-        str(path),"--outdir",str(WORK_DIR)
-    ])
-    pdf = WORK_DIR / (path.stem + ".pdf")
+    subprocess.run(["libreoffice","--headless","--convert-to","pdf", str(path),"--outdir",str(WORK_DIR)])
+    pdf = WORK_DIR / (path.stem+".pdf")
     shutil.rmtree(WORK_DIR)
     return pdf if pdf.exists() else None
 
-conversion_allowed = True
+can_convert = True
 if not st.session_state.login:
-    if st.session_state.guest_count >= FREE_LIMIT:
-        st.warning(f"⚠️ You have reached {FREE_LIMIT} free conversions. Please create an account for unlimited usage.")
-        conversion_allowed = False
+    if st.session_state.guest_used < GUEST_FIRST_FILE:
+        st.info(t("يمكنك تحويل ملف واحد مجانًا","You can convert 1 file for free"))
+    elif st.session_state.guest_used < GUEST_LIMIT:
+        st.info(t(f"لديك {GUEST_LIMIT-st.session_state.guest_used} تحويلات مجانية قبل الاشتراك",
+                  f"You have {GUEST_LIMIT-st.session_state.guest_used} free conversions before subscription"))
+    else:
+        st.warning(t(f"لقد وصلت للحد المجاني. اشترك {PAID_PRICE} جنيه لتحويل {PAID_FILES} ملف",
+                      f"You reached free limit. Subscribe {PAID_PRICE} EGP for {PAID_FILES} conversions"))
+        can_convert=False
 
-if uploaded and conversion_allowed and st.button("🚀 Convert to PDF"):
-    with st.spinner("Converting..."):
-        pdf = convert(uploaded)
-        if pdf:
-            st.success("Conversion successful!")
-            st.download_button("📥 Download PDF", open(pdf,"rb"), pdf.name)
-            if st.session_state.login:
-                users[st.session_state.user]["count"] +=1
-                save_json(USERS_FILE, users)
-            else:
-                st.session_state.guest_count +=1
-
-            # Save history
-            user = st.session_state.user if st.session_state.login else f"Guest_{st.session_state.guest_count}"
-            history.setdefault(user, []).append({
-                "file": uploaded.name,
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-            })
-            save_json(HISTORY_FILE, history)
+if uploaded and can_convert and st.button(t("🚀 تحويل","🚀 Convert to PDF")):
+    pdf = convert(uploaded)
+    if pdf:
+        st.success(t("تم التحويل بنجاح!","Conversion successful!"))
+        st.download_button(t("📥 تحميل PDF","📥 Download PDF"), open(pdf,"rb"), pdf.name)
+        # Update counts
+        if st.session_state.login:
+            users[st.session_state.user]["total_converted"]+=1
+            if users[st.session_state.user]["subscription_status"]=="Active":
+                users[st.session_state.user]["files_remaining"]-=1
+            save_json(USERS_FILE, users)
+            user=st.session_state.user
         else:
-            st.error("Conversion failed!")
+            st.session_state.guest_used+=1
+            user=f"Guest_{st.session_state.guest_used}"
+        history.setdefault(user,[]).append({"file":uploaded.name,"time":datetime.now().strftime("%Y-%m-%d %H:%M")})
+        save_json(HISTORY_FILE,history)
+    else: st.error(t("فشل التحويل","Conversion failed!"))
 
-# ===================== Profile & History =====================
+# ===================== البروفايل =====================
 if st.session_state.login:
     st.divider()
-    st.markdown("## 👤 Profile")
-    u = users[st.session_state.user]
-    st.markdown(
-        f"<div class='card'>📅 Account created: {u['created']}<br>📄 Total conversions: {u['count']}</div>",
-        unsafe_allow_html=True
-    )
+    st.markdown(t("## 👤 البروفايل","## 👤 Profile"))
+    u=users[st.session_state.user]
+    st.markdown(f"<div class='card'>📅 {t('تاريخ الحساب','Account created')}: {u['created']}<br>📄 {t('إجمالي التحويلات','Total conversions')}: {u['total_converted']}<br>🗂️ {t('عدد الملفات المتبقية','Files remaining')}: {u['files_remaining']}</div>", unsafe_allow_html=True)
     if st.session_state.user in history:
-        st.markdown("## 🗂️ Conversion History")
+        st.markdown(t("## 🗂️ سجل التحويلات","## 🗂️ Conversion History"))
         for h in history[st.session_state.user][::-1]:
-            st.markdown(
-                f"<div class='card'>📄 {h['file']}<br>🕒 {h['time']}</div>",
-                unsafe_allow_html=True
-            )
+            st.markdown(f"<div class='card'>📄 {h['file']}<br>🕒 {h['time']}</div>", unsafe_allow_html=True)
 
-# ===================== Share =====================
+# ===================== مشاركة =====================
 st.divider()
-st.markdown("## 🔗 Share this app")
-st.code("Share the link and earn rewards 🤍")
+st.markdown(t("## 🔗 شارك التطبيق","## 🔗 Share this app"))
+st.code(t("شارك التطبيق – ولك الأجر 🤍","Share the link and earn rewards 🤍"))
 
 st.caption("© 2026 | Sadaqa Jariya")
