@@ -1,176 +1,178 @@
 import streamlit as st
 import subprocess
+import os
 import shutil
-import json
+import sqlite3
 import hashlib
-from pathlib import Path
 from datetime import datetime
 
-# ===================== إعدادات =====================
-APP_TITLE = "📄 محول الملفات إلى PDF"
-DEVELOPER = "تطوير: محمد فتحي أبو الجيلاني"
-WORK_DIR = Path("temp_convert")
-USERS_FILE = Path("users.json")
-HISTORY_FILE = Path("history.json")
-ALLOWED_TYPES = ['docx','doc','pptx','ppt','xlsx','xls']
+# ---------------------------------------------------------
+# 1. إعداد قاعدة البيانات (Database Setup)
+# ---------------------------------------------------------
+def init_db():
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    # جدول المستخدمين
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (username TEXT PRIMARY KEY, password TEXT)''')
+    # جدول السجل
+    c.execute('''CREATE TABLE IF NOT EXISTS history
+                 (username TEXT, filename TEXT, date TEXT)''')
+    conn.commit()
+    conn.close()
 
-# ===================== أدوات =====================
-def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
+def add_user(username, password):
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+    try:
+        c.execute("INSERT INTO users VALUES (?, ?)", (username, hashed_pw))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
 
-def load_json(file):
-    if file.exists():
-        return json.load(open(file, "r", encoding="utf-8"))
-    return {}
+def check_login(username, password):
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
+    c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, hashed_pw))
+    data = c.fetchone()
+    conn.close()
+    return data
 
-def save_json(file, data):
-    json.dump(data, open(file, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+def add_to_history(username, filename):
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    date_now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    c.execute("INSERT INTO history VALUES (?, ?, ?)", (username, filename, date_now))
+    conn.commit()
+    conn.close()
 
-users = load_json(USERS_FILE)
-history = load_json(HISTORY_FILE)
+def get_history(username):
+    conn = sqlite3.connect('data.db')
+    c = conn.cursor()
+    c.execute("SELECT filename, date FROM history WHERE username=? ORDER BY date DESC", (username,))
+    data = c.fetchall()
+    conn.close()
+    return data
 
-# ===================== إعداد الصفحة =====================
-st.set_page_config(page_title=APP_TITLE, page_icon="📄")
+# تشغيل قاعدة البيانات عند البدء
+init_db()
 
-st.markdown("""
-<style>
-.stApp { background:#020617; color:white }
-h1,h2 { color:#22c55e }
-.stButton>button {
-    background:#22c55e; color:black;
-    border-radius:10px; font-weight:bold
-}
-.card {
-    background:#020617;
-    border:1px solid #22c55e;
-    padding:15px; border-radius:12px;
-    margin-bottom:10px
-}
-</style>
-""", unsafe_allow_html=True)
+# ---------------------------------------------------------
+# 2. واجهة التطبيق (UI)
+# ---------------------------------------------------------
+st.set_page_config(page_title="المحول الشامل", page_icon="🎓", layout="wide")
 
-# ===================== Session =====================
-if "login" not in st.session_state:
-    st.session_state.login = False
+# حالة تسجيل الدخول
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+    st.session_state['username'] = 'Guest'
 
-# ===================== تسجيل / إنشاء =====================
-if not st.session_state.login:
-    t1, t2 = st.tabs(["🔐 تسجيل الدخول", "🆕 إنشاء حساب"])
-
-    with t1:
-        u = st.text_input("اسم المستخدم")
-        p = st.text_input("كلمة السر", type="password")
-        if st.button("دخول"):
-            if u in users and users[u]["pw"] == hash_pw(p):
-                st.session_state.login = True
-                st.session_state.user = u
-                st.rerun()
-            else:
-                st.error("بيانات غير صحيحة")
-
-    with t2:
-        nu = st.text_input("اسم مستخدم جديد")
-        np = st.text_input("كلمة سر", type="password")
-        if st.button("إنشاء الحساب"):
-            if nu in users:
-                st.warning("الاسم موجود")
-            elif len(np) < 4:
-                st.warning("كلمة السر قصيرة")
-            else:
-                users[nu] = {
-                    "pw": hash_pw(np),
-                    "created": datetime.now().strftime("%Y-%m-%d"),
-                    "count": 0
-                }
-                save_json(USERS_FILE, users)
-                st.success("تم إنشاء الحساب")
-
-    st.stop()
-
-# ===================== Sidebar =====================
+# --- القائمة الجانبية (Sidebar) ---
 with st.sidebar:
-    st.write(f"👤 {st.session_state.user}")
-    if st.button("🗑️ حذف الحساب"):
-        del users[st.session_state.user]
-        save_json(USERS_FILE, users)
-        st.session_state.login = False
-        st.rerun()
-
-    if st.button("🚪 تسجيل الخروج"):
-        st.session_state.login = False
-        st.rerun()
-
-# ===================== رسالة الصدقة =====================
-if "visited" not in st.session_state:
-    st.session_state.visited = True
-    st.markdown("""
-    <div class='card'>
-    🕊️ <b>صدقة جارية على روح جدتي</b><br><br>
-    اللهم اغفر لها وارحمها ونوّر قبرها واجعل هذا العمل في ميزان حسناتها 🤍
-    </div>
-    """, unsafe_allow_html=True)
-
-# ===================== العنوان =====================
-st.title(APP_TITLE)
-st.caption(DEVELOPER)
-st.divider()
-
-# ===================== التحويل =====================
-uploaded = st.file_uploader("📤 اختر ملف", type=ALLOWED_TYPES)
-
-def convert(file):
-    WORK_DIR.mkdir(exist_ok=True)
-    path = WORK_DIR / file.name.replace(" ", "_")
-    open(path,"wb").write(file.getbuffer())
-
-    subprocess.run([
-        "libreoffice","--headless",
-        "--convert-to","pdf",
-        str(path),"--outdir",str(WORK_DIR)
-    ])
-
-    pdf = WORK_DIR / (path.stem + ".pdf")
-    shutil.rmtree(WORK_DIR)
-    return pdf if pdf.exists() else None
-
-if uploaded and st.button("🚀 تحويل"):
-    with st.spinner("جاري التحويل..."):
-        pdf = convert(uploaded)
-        if pdf:
-            st.success("تم التحويل")
-            st.download_button("تحميل PDF", open(pdf,"rb"), pdf.name)
-
-            users[st.session_state.user]["count"] += 1
-            save_json(USERS_FILE, users)
-
-            history.setdefault(st.session_state.user, []).append({
-                "file": uploaded.name,
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-            })
-            save_json(HISTORY_FILE, history)
+    st.title("👤 الحساب")
+    
+    if st.session_state['logged_in']:
+        st.success(f"مرحباً, {st.session_state['username']}! 👋")
+        
+        st.divider()
+        st.subheader("📜 سجلك السابق")
+        history = get_history(st.session_state['username'])
+        if history:
+            for item in history:
+                st.text(f"📅 {item[1]}\n📄 {item[0]}")
+                st.markdown("---")
         else:
-            st.error("فشل التحويل")
+            st.caption("لم تقم بتحويل ملفات بعد.")
+            
+        if st.button("تسجيل خروج"):
+            st.session_state['logged_in'] = False
+            st.session_state['username'] = 'Guest'
+            st.rerun()
+            
+    else:
+        st.info("💡 يمكنك التحويل كزائر، أو تسجيل الدخول لحفظ سجلك.")
+        choice = st.selectbox("اختر:", ["زائر (Guest)", "تسجيل دخول", "إنشاء حساب جديد"])
+        
+        if choice == "تسجيل دخول":
+            user = st.text_input("اسم المستخدم")
+            pw = st.text_input("كلمة المرور", type="password")
+            if st.button("دخول"):
+                if check_login(user, pw):
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = user
+                    st.success("تم الدخول بنجاح!")
+                    st.rerun()
+                else:
+                    st.error("بيانات خاطئة")
+                    
+        elif choice == "إنشاء حساب جديد":
+            new_user = st.text_input("اختر اسم مستخدم")
+            new_pw = st.text_input("اختر كلمة مرور", type="password")
+            if st.button("تسجيل حساب"):
+                if add_user(new_user, new_pw):
+                    st.success("تم إنشاء الحساب! يمكنك تسجيل الدخول الآن.")
+                else:
+                    st.error("اسم المستخدم مأخوذ سابقاً.")
 
-# ===================== بروفايل =====================
+# --- الصفحة الرئيسية (Main Page) ---
+st.title("🎓 محول الملفات (صدقة جارية)")
+st.write("تحويل المستندات إلى PDF مجاناً وبلا حدود.")
+
+if st.session_state['logged_in']:
+    st.caption(f"أنت تستخدم الموقع الآن بصفتك: **{st.session_state['username']}**")
+else:
+    st.caption("أنت تستخدم الموقع بصفتك: **زائر**")
+
 st.divider()
-st.markdown("## 👤 البروفايل")
-u = users[st.session_state.user]
-st.markdown(
-    f"<div class='card'>📅 تاريخ الحساب: {u['created']}<br>📄 عدد التحويلات: {u['count']}</div>",
-    unsafe_allow_html=True
-)
 
-# ===================== السجل =====================
-if st.session_state.user in history:
-    st.markdown("## 🗂️ سجل التحويلات")
-    for h in history[st.session_state.user][::-1]:
-        st.markdown(
-            f"<div class='card'>📄 {h['file']}<br>🕒 {h['time']}</div>",
-            unsafe_allow_html=True
-        )
+uploaded_file = st.file_uploader("ارفع ملفك (Word, PowerPoint, Excel)", type=['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'])
 
-# ===================== شير =====================
-st.divider()
-st.markdown("## 🔗 مشاركة")
-st.code("شارِك التطبيق – ولك الأجر 🤍")
+if uploaded_file is not None:
+    if st.button("تحويل الملف 🚀"):
+        with st.spinner('جاري التحويل...'):
+            try:
+                # إنشاء مجلد مؤقت
+                work_dir = "temp_gen"
+                if not os.path.exists(work_dir):
+                    os.makedirs(work_dir)
+                
+                safe_filename = uploaded_file.name.replace(" ", "_")
+                input_path = os.path.join(work_dir, safe_filename)
+                
+                with open(input_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
 
-st.caption("© 2026 | صدقة جارية")
+                # التحويل
+                cmd = ["libreoffice", "--headless", "--convert-to", "pdf", input_path, "--outdir", work_dir]
+                process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+                pdf_filename = os.path.splitext(safe_filename)[0] + ".pdf"
+                output_path = os.path.join(work_dir, pdf_filename)
+
+                if os.path.exists(output_path):
+                    st.balloons() # احتفال بسيط بالنجاح
+                    st.success("✅ تم التحويل بنجاح!")
+                    
+                    # لو عضو مسجل، نحفظ في السجل
+                    if st.session_state['logged_in']:
+                        add_to_history(st.session_state['username'], uploaded_file.name)
+                    
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            label="📥 تحميل الـ PDF",
+                            data=f,
+                            file_name=pdf_filename,
+                            mime="application/pdf"
+                        )
+                else:
+                    st.error("فشل التحويل.")
+                
+                shutil.rmtree(work_dir)
+
+            except Exception as e:
+                st.error(f"حدث خطأ: {e}")
