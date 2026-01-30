@@ -1,86 +1,58 @@
 import streamlit as st
 import subprocess
+import os
 import shutil
-from pathlib import Path
-from datetime import datetime
-import requests
 
-# ===================== إعدادات =====================
-APP_TITLE = "📄 محول الملفات إلى PDF مع AI Chat"
-WORK_DIR = Path("temp_convert")
-ALLOWED_TYPES = ['docx','doc','pptx','ppt','xlsx','xls']
+# إعداد الصفحة
+st.set_page_config(page_title="المحول المجاني", page_icon="📄")
 
-# Gemini API Key
-GEMINI_API_KEY = "AIzaSyDeRmbMyDST6WzJQAuPY4DIqxCb19G-g_4"
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta2/models/text-bison-001:generateText"
+# العنوان
+st.title("📄 محول الملفات (مجاني 100%)")
+st.write("حول ملفات Word و Excel و PowerPoint إلى PDF بدون حدود وبدون إنترنت")
 
-# ===================== Session =====================
-if "login" not in st.session_state: st.session_state.login = False
-if "visited" not in st.session_state: st.session_state.visited = False
+# رفع الملف
+uploaded_file = st.file_uploader("اختر الملف", type=['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'])
 
-# ===================== الصفحة =====================
-st.set_page_config(page_title=APP_TITLE, page_icon="📄")
-st.markdown("""
-<style>
-.stApp { background:#1F2937; color:white; font-family:Arial; }
-h1,h2,h3 { color:#22C55E; }
-.stButton>button { background:#22C55E; color:black; border-radius:10px; font-weight:bold }
-.card { background:#374151; border:1px solid #22C55E; padding:15px; border-radius:12px; margin-bottom:10px; box-shadow: 2px 2px 8px rgba(0,0,0,0.2); }
-input, textarea { background:#4B5563; color:white; }
-</style>
-""", unsafe_allow_html=True)
+if uploaded_file is not None:
+    if st.button("تحويل الآن 🚀"):
+        with st.spinner('جاري التحويل باستخدام LibreOffice...'):
+            try:
+                # إنشاء مجلد مؤقت
+                work_dir = "temp_convert"
+                if not os.path.exists(work_dir):
+                    os.makedirs(work_dir)
+                
+                # حفظ الملف المرفوع (مع استبدال المسافات لتجنب الأخطاء)
+                safe_filename = uploaded_file.name.replace(" ", "_")
+                input_path = os.path.join(work_dir, safe_filename)
+                
+                with open(input_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
 
-# ===================== Header =====================
-st.title(APP_TITLE)
-st.divider()
+                # أمر التحويل باستخدام LibreOffice
+                cmd = ["libreoffice", "--headless", "--convert-to", "pdf", input_path, "--outdir", work_dir]
+                process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-# ===================== التسجيل اختياري =====================
-with st.expander("🔐 تسجيل الدخول / إنشاء حساب (اختياري)"):
-    username = st.text_input("اسم المستخدم / Username")
-    password = st.text_input("كلمة السر / Password", type="password")
-    login_btn = st.button("دخول / Login")
-    st.write("يمكنك استخدام التطبيق بدون تسجيل أيضًا / You can use the app without login")
+                # النتيجة
+                pdf_filename = os.path.splitext(safe_filename)[0] + ".pdf"
+                output_path = os.path.join(work_dir, pdf_filename)
 
-# ===================== رفع الملفات =====================
-uploaded_file = st.file_uploader("اختر ملف Word / Excel / PowerPoint / Select your file", type=ALLOWED_TYPES)
+                if os.path.exists(output_path):
+                    st.success("✅ تم التحويل بنجاح!")
+                    
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            label="📥 تحميل ملف PDF",
+                            data=f,
+                            file_name=pdf_filename,
+                            mime="application/pdf"
+                        )
+                else:
+                    st.error("فشل التحويل. تأكد أن الملف غير تالف.")
+                    st.text(process.stderr.decode())
 
-def convert(file):
-    WORK_DIR.mkdir(exist_ok=True)
-    path = WORK_DIR / file.name.replace(" ", "_")
-    open(path,"wb").write(file.getbuffer())
-    subprocess.run(["libreoffice","--headless","--convert-to","pdf", str(path),"--outdir",str(WORK_DIR)])
-    pdf = WORK_DIR / (path.stem + ".pdf")
-    shutil.rmtree(WORK_DIR)
-    return pdf if pdf.exists() else None
+                # تنظيف
+                shutil.rmtree(work_dir)
 
-if uploaded_file and st.button("🚀 تحويل / Convert to PDF"):
-    with st.spinner("جاري التحويل / Converting..."):
-        pdf = convert(uploaded_file)
-        if pdf:
-            st.success("✅ تم التحويل بنجاح / Conversion successful!")
-            st.download_button("📥 تحميل PDF / Download PDF", open(pdf,"rb"), pdf.name)
-        else:
-            st.error("❌ فشل التحويل / Conversion failed!")
-
-# ===================== زر Chat AI =====================
-st.divider()
-st.markdown("## 💬 Chat AI (Powered by Gemini)")
-user_prompt = st.text_area("اكتب سؤالك هنا / Type your question here")
-
-if st.button("💡 إرسال / Send"):
-    if user_prompt.strip() == "":
-        st.warning("اكتب شيء / Please type something")
-    else:
-        headers = {"Authorization": f"Bearer {GEMINI_API_KEY}"}
-        data = {
-            "prompt": user_prompt,
-            "temperature": 0.7,
-            "maxOutputTokens": 500
-        }
-        response = requests.post(GEMINI_URL, headers=headers, json=data)
-        if response.status_code == 200:
-            res = response.json()
-            answer = res.get("candidates", [{}])[0].get("output", "لا يوجد رد / No response")
-            st.markdown(f"**AI Answer / الرد:** {answer}")
-        else:
-            st.error(f"خطأ في الاتصال / API Error: {response.status_code}")
+            except Exception as e:
+                st.error(f"حدث خطأ: {e}")
