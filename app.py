@@ -7,7 +7,7 @@ import shutil
 st.set_page_config(page_title="المحول المجاني", page_icon="📄")
 
 # العنوان
-st.title("📄 محول الملفات (مجاني 100%)")
+st.title("📄 محول الملفات (تطوير محمد فتحي ابو الجيلاني ")
 st.write("حول ملفات Word و Excel و PowerPoint إلى PDF بدون حدود وبدون إنترنت")
 
 # رفع الملف
