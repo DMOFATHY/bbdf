@@ -2,25 +2,60 @@ import streamlit as st
 import subprocess
 import os
 import shutil
+from datetime import datetime
 
 # --- 1. إعداد الصفحة ---
-st.set_page_config(page_title="محول الملفات - Convertio Style", page_icon="📂", layout="wide")
+st.set_page_config(page_title="منصة عـون - Awn", page_icon="⚡", layout="wide")
 
-# --- 2. التصميم (CSS) لمحاكاة الصورة ---
+# --- 2. إعداد سجل التحويلات (Session State) ---
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+# دالة لإضافة عملية للسجل
+def add_to_history(filename, status):
+    now = datetime.now().strftime("%H:%M:%S")
+    st.session_state.history.append({
+        "time": now,
+        "file": filename,
+        "status": status
+    })
+
+# --- 3. القائمة الجانبية (السجل) ---
+with st.sidebar:
+    st.title("🕒 سجل التحويلات")
+    st.write("هنا تظهر الملفات التي حولتها في هذه الجلسة:")
+    
+    if len(st.session_state.history) == 0:
+        st.info("لم تقم بتحويل أي ملفات بعد.")
+    else:
+        for item in reversed(st.session_state.history):
+            st.markdown(f"""
+            <div style="padding: 10px; border-bottom: 1px solid #eee; margin-bottom: 5px;">
+                <div style="font-weight: bold; color: #333;">📄 {item['file']}</div>
+                <div style="font-size: 12px; color: #666;">
+                    الساعة: {item['time']} | الحالة: {item['status']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+    st.markdown("---")
+    st.write("💡 هذا السجل يمسح عند تحديث الصفحة.")
+
+# --- 4. التصميم (CSS) ---
 st.markdown("""
 <style>
-    /* استيراد خط جميل (Cairo) */
+    /* استيراد خط Cairo */
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
 
     html, body, [class*="css"] {
         font-family: 'Cairo', sans-serif;
     }
 
-    /* إخفاء القائمة الجانبية الافتراضية وشريط الهيدر الخاص بـ Streamlit */
+    /* إخفاء القائمة العلوية الافتراضية */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* تنسيق الخلفية */
+    /* خلفية التطبيق */
     .stApp {
         background-color: #ffffff;
         direction: rtl; 
@@ -28,60 +63,49 @@ st.markdown("""
 
     /* --- الشريط العلوي (Navbar) --- */
     .navbar {
-        background-color: #333333;
+        background-color: #f8f9fa; /* خلفية فاتحة */
         padding: 15px 30px;
+        border-bottom: 1px solid #e0e0e0;
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 40px;
-        color: white;
-        font-size: 20px;
-        font-weight: bold;
-    }
-    .nav-logo {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .convertio-logo {
-        color: #fff;
-        font-size: 24px;
-        font-weight: 900;
-    }
-    .red-icon {
-        color: #e53935;
-        font-size: 28px;
+        color: #333333; /* جعل النص أسود */
     }
 
-    /* --- النصوص الرئيسية (Hero Section) --- */
+    /* --- العناوين --- */
     .hero-title {
         text-align: center;
-        color: #da2f2f; /* اللون الأحمر المميز */
+        color: #da2f2f; /* أحمر */
         font-size: 50px;
         font-weight: 900;
         margin-bottom: 10px;
     }
     .hero-subtitle {
         text-align: center;
-        color: #555;
+        color: #333333; /* أسود */
         font-size: 22px;
         margin-bottom: 40px;
     }
 
-    /* --- تنسيق زر الرفع والزر الأساسي --- */
-    /* محاولة صبغ زر الرفع باللون الأحمر */
-    .stFileUploader label {
-        display: none; /* إخفاء النص الصغير الافتراضي */
-    }
+    /* --- منطقة الرفع --- */
     div[data-testid="stFileUploader"] {
-        background-color: #333; /* خلفية داكنة لمنطقة الرفع */
+        background-color: #333; /* منطقة الرفع تظل غامقة لتبرز */
         padding: 40px;
         border-radius: 8px;
         text-align: center;
         max-width: 800px;
         margin: 0 auto;
     }
-    /* تنسيق زر "تحويل الآن" */
+    /* جعل نص داخل منطقة الرفع أبيض لأنه على خلفية غامقة */
+    div[data-testid="stFileUploader"] label {
+        color: white; 
+    }
+    div[data-testid="stFileUploader"] .stMarkdown {
+        color: #eee;
+    }
+
+    /* --- الزر --- */
     .stButton button {
         background-color: #da2f2f !important;
         color: white !important;
@@ -95,12 +119,12 @@ st.markdown("""
         background-color: #b71c1c !important;
     }
 
-    /* --- تنسيق كروت الصدقة الجارية (كما طلب سابقاً) --- */
+    /* --- كروت الصدقة --- */
     .sadaqa-header {
         text-align: center;
         margin-top: 80px;
         margin-bottom: 30px;
-        color: #2c3e50;
+        color: #2c3e50; /* كحلي غامق */
         border-top: 2px solid #eee;
         padding-top: 40px;
     }
@@ -109,7 +133,7 @@ st.markdown("""
         border-radius: 12px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.08);
         overflow: hidden;
-        border: 1px solid #f0f0f0;
+        border: 1px solid #eee;
         margin-bottom: 20px;
         transition: transform 0.3s;
     }
@@ -118,25 +142,25 @@ st.markdown("""
     }
     .card-img-container img {
         width: 100%;
-        height: 300px !important;
+        height: 250px !important; /* ارتفاع موحد */
         object-fit: cover;
     }
     .card-content {
-        padding: 20px;
+        padding: 15px;
         text-align: center;
     }
     .person-name-title {
-        font-size: 22px;
+        font-size: 20px;
         font-weight: bold;
-        color: #333;
-        margin-bottom: 10px;
+        color: #000; /* أسود */
+        margin-bottom: 8px;
     }
     .dua-text-body {
-        font-size: 16px;
-        color: #666;
-        line-height: 1.7;
-        background-color: #fafafa;
-        padding: 15px;
+        font-size: 15px;
+        color: #444; /* رمادي غامق */
+        line-height: 1.6;
+        background-color: #f9fff9;
+        padding: 10px;
         border-radius: 8px;
     }
     .final-footer {
@@ -151,23 +175,39 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. الهيكل العلوي (HTML) ---
+# --- 5. الهيكل العلوي (اللوجو) ---
+# ملاحظة: تم تغيير الألوان للأسود لتظهر بوضوح
 st.markdown("""
-<div class="navbar">
-    <div class="nav-logo">
-        <span class="red-icon">⚡</span>
-        <span class="convertio-logo">Convertio Clone</span>
+<div class="navbar" style="direction: ltr;">
+    <div class="nav-logo" style="font-family: 'Cairo', sans-serif; display: flex; align-items: center; gap: 12px;">
+        <div style="
+            background: linear-gradient(135deg, #da2f2f, #b71c1c);
+            color: white;
+            width: 45px; height: 45px;
+            border-radius: 10px;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: 900; font-size: 26px;
+            box-shadow: 0 4px 6px rgba(218, 47, 47, 0.3);
+        ">
+            عـ
+        </div>
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+             <span style="color: #000; font-size: 26px; font-weight: 900; line-height: 1;">عون</span>
+             <span style="color: #555; font-size: 14px; font-weight: normal;">Awn Converter</span>
+        </div>
     </div>
-    <div>☰</div>
+    
+    <div style="color: #333; font-size: 16px; font-weight: bold;">
+       ⬅️ افتح القائمة للسجل 
+    </div>
 </div>
 
 <div class="hero-title">محوّل الملفات</div>
-<div class="hero-subtitle">حوّل ملفاتك إلى أي صيغة (PDF)</div>
+<div class="hero-subtitle">حوّل ملفاتك إلى أي صيغة (PDF) مجاناً</div>
 """, unsafe_allow_html=True)
 
-# --- 4. منطق التطبيق (Python) ---
+# --- 6. منطق التحويل ---
 
-# وضعنا رفع الملفات داخل حاوية لتنسيقها
 col_spacer1, col_main, col_spacer2 = st.columns([1, 2, 1])
 
 with col_main:
@@ -197,7 +237,10 @@ with col_main:
                     output_path = os.path.join(work_dir, pdf_filename)
 
                     if os.path.exists(output_path):
-                        st.success("✅ تم التحويل!")
+                        st.success("✅ تم التحويل بنجاح!")
+                        # إضافة للسجل
+                        add_to_history(uploaded_file.name, "✅ تم التحويل")
+                        
                         with open(output_path, "rb") as f:
                             st.download_button(
                                 label="📥 تنزيل الملف (PDF)",
@@ -206,29 +249,29 @@ with col_main:
                                 mime="application/pdf"
                             )
                     else:
-                        st.error("فشل التحويل. تأكد من سلامة الملف.")
+                        st.error("فشل التحويل.")
+                        add_to_history(uploaded_file.name, "❌ فشل")
                     
                     shutil.rmtree(work_dir)
 
                 except Exception as e:
                     st.error(f"حدث خطأ: {e}")
 
-# نص إضافي تحت الزر مثل الصورة
 st.markdown("""
-<div style="text-align: center; margin-top: 30px; color: #888;">
-    <p>يدعم الموقع ملفات Word و Excel و PowerPoint</p>
+<div style="text-align: center; margin-top: 30px; color: #333;">
+    <p style="font-weight: bold;">يدعم الموقع ملفات Word و Excel و PowerPoint</p>
     <p>سهل الاستخدام • مجاني 100% • آمن</p>
 </div>
 """, unsafe_allow_html=True)
 
 
-# --- 5. قسم الصدقة الجارية ---
+# --- 7. قسم الصدقة الجارية ---
 
 st.markdown('<h2 class="sadaqa-header">🤲 صدقة جارية ونسألكم الدعاء</h2>', unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns(3, gap="medium")
 
-# --- الكارت الأول (الجدة) ---
+# الكارت الأول (الجدة)
 with col1:
     st.markdown("""
     <div class="full-card">
@@ -244,7 +287,7 @@ with col1:
     </div>
     """, unsafe_allow_html=True)
 
-# --- الكارت الثاني (محمود) ---
+# الكارت الثاني (محمود)
 with col2:
     st.markdown("""
     <div class="full-card">
@@ -260,7 +303,7 @@ with col2:
     </div>
     """, unsafe_allow_html=True)
 
-# --- الكارت الثالث (أحمد) ---
+# الكارت الثالث (أحمد)
 with col3:
     st.markdown("""
     <div class="full-card">
