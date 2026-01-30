@@ -1,282 +1,180 @@
 import streamlit as st
 import subprocess
-import os
 import shutil
-import sqlite3
+import json
 import hashlib
-import time
+from pathlib import Path
 from datetime import datetime
 
-# ==========================================
-# 1. إعدادات الصفحة والتصميم (UI/UX)
-# ==========================================
-st.set_page_config(page_title="المحول المتقدم للمستندات", page_icon="📄", layout="centered")
+# ===================== إعدادات =====================
+APP_TITLE = "📄 Offline Office-to-PDF Converter"
+DEVELOPER = "Developed by Mohamed Fathy Abu El-Gelany"
+WORK_DIR = Path("temp_convert")
+USERS_FILE = Path("users.json")
+HISTORY_FILE = Path("history.json")
+ALLOWED_TYPES = ['docx','doc','pptx','ppt','xlsx','xls']
 
-# دمج ملفات CSS لتطبيق ألوان الأزرق والأخضر (Deep Blue & Soft Green)
+FREE_LIMIT = 2  # Number of free conversions for guests
+
+# ===================== أدوات =====================
+def hash_pw(p): return hashlib.sha256(p.encode()).hexdigest()
+def load_json(file): return json.load(open(file,"r",encoding="utf-8")) if file.exists() else {}
+def save_json(file, data): json.dump(data, open(file,"w",encoding="utf-8"), indent=2, ensure_ascii=False)
+
+users = load_json(USERS_FILE)
+history = load_json(HISTORY_FILE)
+
+# ===================== إعداد الصفحة =====================
+st.set_page_config(page_title=APP_TITLE, page_icon="📄")
+
 st.markdown("""
 <style>
-    /* الخلفية والخطوط */
-    .stApp {
-        background-color: #f8f9fa;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    
-    /* العناوين */
-    h1, h2, h3 {
-        color: #1a3c5e; /* Deep Blue */
-    }
-    
-    /* الأزرار */
-    div.stButton > button {
-        background-color: #1a3c5e;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 10px 24px;
-        font-weight: bold;
-        transition: 0.3s;
-        width: 100%;
-    }
-    div.stButton > button:hover {
-        background-color: #4CAF50; /* Soft Green Accent */
-        color: white;
-    }
-    
-    /* الكروت (Cards) */
-    .css-1y4p8pa {
-        padding: 2rem;
-        border-radius: 10px;
-        background-color: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    /* الرسائل */
-    .success-msg {
-        color: #4CAF50;
-        font-weight: bold;
-    }
-    
-    /* القائمة الجانبية */
-    section[data-testid="stSidebar"] {
-        background-color: #ffffff;
-        border-right: 1px solid #e0e0e0;
-    }
+.stApp { background:#F8FAFC; color:#0F172A; font-family:Arial; }
+h1,h2,h3 { color:#0F172A; }
+.stButton>button {
+    background:#22C55E; color:black;
+    border-radius:10px; font-weight:bold
+}
+.card {
+    background:#FFFFFF;
+    border:1px solid #22C55E;
+    padding:15px; border-radius:12px;
+    margin-bottom:10px; box-shadow: 2px 2px 8px rgba(0,0,0,0.1);
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. قاعدة البيانات والأمان (Backend)
-# ==========================================
-def init_db():
-    conn = sqlite3.connect('app_data.db')
-    c = conn.cursor()
-    # جدول المستخدمين
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (username TEXT PRIMARY KEY, password TEXT, join_date TEXT)''')
-    # جدول السجل
-    c.execute('''CREATE TABLE IF NOT EXISTS history
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, filename TEXT, date TEXT)''')
-    conn.commit()
-    conn.close()
+# ===================== Session =====================
+if "login" not in st.session_state: st.session_state.login = False
+if "guest_count" not in st.session_state: st.session_state.guest_count = 0
+if "visited" not in st.session_state: st.session_state.visited = False
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+# ===================== تسجيل / إنشاء =====================
+if not st.session_state.login:
+    t1,t2 = st.tabs(["🔐 Login", "🆕 Register"])
 
-def register_user(username, password):
-    conn = sqlite3.connect('app_data.db')
-    c = conn.cursor()
-    try:
-        c.execute("INSERT INTO users VALUES (?, ?, ?)", 
-                  (username, hash_password(password), datetime.now().strftime("%Y-%m-%d")))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
+    with t1:
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if u in users and users[u]["pw"] == hash_pw(p):
+                st.session_state.login = True
+                st.session_state.user = u
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
 
-def authenticate(username, password):
-    conn = sqlite3.connect('app_data.db')
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE username=? AND password=?", 
-              (username, hash_password(password)))
-    user = c.fetchone()
-    conn.close()
-    return user
+    with t2:
+        nu = st.text_input("New Username")
+        np = st.text_input("New Password", type="password")
+        if st.button("Create Account"):
+            if nu in users:
+                st.warning("Username already exists")
+            elif len(np)<4:
+                st.warning("Password too short")
+            else:
+                users[nu] = {
+                    "pw": hash_pw(np),
+                    "created": datetime.now().strftime("%Y-%m-%d"),
+                    "count": 0
+                }
+                save_json(USERS_FILE, users)
+                st.success("Account created! Please login.")
 
-def log_history(username, filename):
-    conn = sqlite3.connect('app_data.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO history (username, filename, date) VALUES (?, ?, ?)", 
-              (username, filename, datetime.now().strftime("%Y-%m-%d %H:%M")))
-    conn.commit()
-    conn.close()
+    st.stop()
 
-def get_user_history(username):
-    conn = sqlite3.connect('app_data.db')
-    c = conn.cursor()
-    c.execute("SELECT filename, date FROM history WHERE username=? ORDER BY id DESC", (username,))
-    data = c.fetchall()
-    conn.close()
-    return data
-
-def get_global_stats():
-    conn = sqlite3.connect('app_data.db')
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM history")
-    count = c.fetchone()[0]
-    conn.close()
-    return count
-
-init_db()
-
-# ==========================================
-# 3. إدارة الجلسة (Session State)
-# ==========================================
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.username = 'Guest'
-    st.session_state.guest_conversions = 0
-    st.session_state.first_visit = True
-
-# ==========================================
-# 4. رسالة الصدقة الجارية (تظهر مرة واحدة)
-# ==========================================
-if st.session_state.first_visit:
-    st.info("🕊️ **صدقة جارية:** نسألكم الدعاء بالرحمة والمغفرة لجدتي ولموتى المسلمين.")
-    st.session_state.first_visit = False
-
-# ==========================================
-# 5. القائمة الجانبية (Sidebar)
-# ==========================================
+# ===================== Sidebar =====================
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2991/2991148.png", width=80)
-    st.title("لوحة التحكم")
-    
-    if st.session_state.logged_in:
-        st.success(f"مرحباً, {st.session_state.username}")
-        st.markdown("---")
-        
-        # الملف الشخصي والسجل
-        st.subheader("📂 سجل تحويلاتك")
-        history = get_user_history(st.session_state.username)
-        if history:
-            for item in history[:5]: # عرض آخر 5 فقط
-                st.caption(f"📄 {item[0]} | 🕒 {item[1]}")
-            if len(history) > 5:
-                st.caption("... والمزيد")
-        else:
-            st.info("لا يوجد تحويلات سابقة.")
-            
-        st.markdown("---")
-        if st.button("تسجيل الخروج"):
-            st.session_state.logged_in = False
-            st.session_state.username = 'Guest'
+    st.write(f"👤 {st.session_state.user if st.session_state.login else 'Guest'}")
+    if st.session_state.login:
+        if st.button("🗑️ Delete Account"):
+            del users[st.session_state.user]
+            save_json(USERS_FILE, users)
+            st.session_state.login = False
             st.rerun()
-            
-    else:
-        # نظام الدخول للزوار
-        st.warning("أنت تستخدم وضع الزائر (محاولتان فقط)")
-        st.markdown(f"**المتبقي:** {2 - st.session_state.guest_conversions}")
-        
-        st.markdown("---")
-        auth_mode = st.radio("خيارات الحساب", ["تسجيل الدخول", "حساب جديد"])
-        
-        user_input = st.text_input("اسم المستخدم")
-        pass_input = st.text_input("كلمة المرور", type="password")
-        
-        if auth_mode == "تسجيل الدخول":
-            if st.button("دخول"):
-                if authenticate(user_input, pass_input):
-                    st.session_state.logged_in = True
-                    st.session_state.username = user_input
-                    st.success("تم الدخول!")
-                    st.rerun()
-                else:
-                    st.error("بيانات خاطئة")
+    if st.button("🚪 Logout"):
+        st.session_state.login = False
+        st.rerun()
+
+# ===================== Charity message =====================
+if not st.session_state.visited:
+    st.session_state.visited = True
+    st.markdown("""
+    <div class='card'>
+    🕊️ <b>Sadaqa Jariya for my grandmother</b><br><br>
+    May Allah forgive her, have mercy, and make this action in her reward balance 🤍
+    </div>
+    """, unsafe_allow_html=True)
+
+# ===================== Header =====================
+st.title(APP_TITLE)
+st.caption(DEVELOPER)
+st.divider()
+
+# ===================== File Conversion =====================
+uploaded = st.file_uploader("📤 Select your file", type=ALLOWED_TYPES)
+
+def convert(file):
+    WORK_DIR.mkdir(exist_ok=True)
+    path = WORK_DIR / file.name.replace(" ", "_")
+    open(path,"wb").write(file.getbuffer())
+    subprocess.run([
+        "libreoffice","--headless",
+        "--convert-to","pdf",
+        str(path),"--outdir",str(WORK_DIR)
+    ])
+    pdf = WORK_DIR / (path.stem + ".pdf")
+    shutil.rmtree(WORK_DIR)
+    return pdf if pdf.exists() else None
+
+conversion_allowed = True
+if not st.session_state.login:
+    if st.session_state.guest_count >= FREE_LIMIT:
+        st.warning(f"⚠️ You have reached {FREE_LIMIT} free conversions. Please create an account for unlimited usage.")
+        conversion_allowed = False
+
+if uploaded and conversion_allowed and st.button("🚀 Convert to PDF"):
+    with st.spinner("Converting..."):
+        pdf = convert(uploaded)
+        if pdf:
+            st.success("Conversion successful!")
+            st.download_button("📥 Download PDF", open(pdf,"rb"), pdf.name)
+            if st.session_state.login:
+                users[st.session_state.user]["count"] +=1
+                save_json(USERS_FILE, users)
+            else:
+                st.session_state.guest_count +=1
+
+            # Save history
+            user = st.session_state.user if st.session_state.login else f"Guest_{st.session_state.guest_count}"
+            history.setdefault(user, []).append({
+                "file": uploaded.name,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M")
+            })
+            save_json(HISTORY_FILE, history)
         else:
-            if st.button("إنشاء حساب"):
-                if user_input and pass_input:
-                    if register_user(user_input, pass_input):
-                        st.success("تم إنشاء الحساب! سجل دخولك الآن.")
-                    else:
-                        st.error("اسم المستخدم مأخوذ.")
-                else:
-                    st.error("الرجاء ملء البيانات")
+            st.error("Conversion failed!")
 
-    st.markdown("---")
-    st.caption(f"📊 إجمالي الملفات المحولة عالمياً: {get_global_stats()}")
-    st.caption("v2.0 | Developed for Charity")
-
-# ==========================================
-# 6. الواجهة الرئيسية (Conversion Card)
-# ==========================================
-st.title("تحويل المستندات إلى PDF")
-st.markdown("حول ملفات **Word, Excel, PowerPoint** بسرعة وأمان.")
-
-# الكارد الرئيسي
-with st.container():
-    uploaded_file = st.file_uploader(
-        "اسحب الملف هنا أو اضغط للاختيار", 
-        type=['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls']
+# ===================== Profile & History =====================
+if st.session_state.login:
+    st.divider()
+    st.markdown("## 👤 Profile")
+    u = users[st.session_state.user]
+    st.markdown(
+        f"<div class='card'>📅 Account created: {u['created']}<br>📄 Total conversions: {u['count']}</div>",
+        unsafe_allow_html=True
     )
+    if st.session_state.user in history:
+        st.markdown("## 🗂️ Conversion History")
+        for h in history[st.session_state.user][::-1]:
+            st.markdown(
+                f"<div class='card'>📄 {h['file']}<br>🕒 {h['time']}</div>",
+                unsafe_allow_html=True
+            )
 
-    if uploaded_file:
-        st.write(f"**الملف المختار:** {uploaded_file.name}")
-        
-        # التحقق من الصلاحيات (Guest Limit Check)
-        can_convert = True
-        if not st.session_state.logged_in:
-            if st.session_state.guest_conversions >= 2:
-                can_convert = False
-                st.error("🔒 لقد استنفدت المحاولات المجانية للزائر.")
-                st.info("قم بإنشاء حساب مجاني (من القائمة الجانبية) للتمتع بتحويلات غير محدودة وحفظ السجل.")
+# ===================== Share =====================
+st.divider()
+st.markdown("## 🔗 Share this app")
+st.code("Share the link and earn rewards 🤍")
 
-        if can_convert:
-            if st.button("ابدأ التحويل 🚀"):
-                with st.spinner('جاري المعالجة والتحويل...'):
-                    try:
-                        # 1. إعداد المجلدات
-                        work_dir = "temp_work"
-                        if not os.path.exists(work_dir):
-                            os.makedirs(work_dir)
-                        
-                        # 2. حفظ الملف
-                        safe_filename = uploaded_file.name.replace(" ", "_")
-                        input_path = os.path.join(work_dir, safe_filename)
-                        with open(input_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-
-                        # 3. التحويل بـ LibreOffice
-                        cmd = ["libreoffice", "--headless", "--convert-to", "pdf", input_path, "--outdir", work_dir]
-                        process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-                        # 4. النتيجة
-                        pdf_filename = os.path.splitext(safe_filename)[0] + ".pdf"
-                        output_path = os.path.join(work_dir, pdf_filename)
-
-                        if os.path.exists(output_path):
-                            st.success("✅ تم التحويل بنجاح!")
-                            
-                            # تحديث العدادات والسجل
-                            if not st.session_state.logged_in:
-                                st.session_state.guest_conversions += 1
-                            else:
-                                log_history(st.session_state.username, uploaded_file.name)
-                            
-                            # زر التحميل
-                            with open(output_path, "rb") as f:
-                                st.download_button(
-                                    label="📥 تحميل ملف PDF",
-                                    data=f,
-                                    file_name=pdf_filename,
-                                    mime="application/pdf"
-                                )
-                        else:
-                            st.error("حدث خطأ أثناء التحويل.")
-                        
-                        # تنظيف
-                        shutil.rmtree(work_dir)
-
-                    except Exception as e:
-                        st.error(f"خطأ غير متوقع: {e}")
+st.caption("© 2026 | Sadaqa Jariya")
