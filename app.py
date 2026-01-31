@@ -13,7 +13,7 @@ import pandas as pd
 import time
 
 # =======================
-# 📧 إعدادات البريد (تأكد من صحتها)
+# 📧 إعدادات البريد
 # =======================
 SENDER_EMAIL = "Dmofathy@gmail.com"
 SENDER_PASSWORD = "fxns iuta umlu fprn"
@@ -33,7 +33,7 @@ def send_email_otp(receiver_email, otp_code):
         return False
 
 # =======================
-# 1. إعداد الصفحة والستايل
+# 1. إعداد الصفحة
 # =======================
 st.set_page_config(page_title="عون - صدقة جارية", page_icon="🤲", layout="centered")
 
@@ -78,7 +78,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =======================
-# 3. البيانات
+# 3. إدارة الملفات
 # =======================
 USERS_FILE = "users.json"
 LOGS_FILE = "logs.json"
@@ -111,9 +111,6 @@ if "admin" not in users:
     users["admin"] = {"name": "Admin", "password": hash_pass("admin123"), "daily_used": 0, "last_day": datetime.now().strftime("%Y-%m-%d"), "role": "admin", "blocked": False, "is_vip": True}
     save_json(USERS_FILE, users)
 
-# =======================
-# 4. الدوال
-# =======================
 def check_libreoffice(): return shutil.which("libreoffice") or shutil.which("soffice")
 
 def can_convert(email):
@@ -133,7 +130,7 @@ def update_usage(email):
     if email in users: users[email]["daily_used"] += 1; save_json(USERS_FILE, users)
 
 # =======================
-# 5. Session
+# 4. Session
 # =======================
 if "user_email" not in st.session_state: st.session_state.user_email = None
 if "user_name" not in st.session_state: st.session_state.user_name = None
@@ -144,25 +141,23 @@ if "reg_data" not in st.session_state: st.session_state.reg_data = {}
 if "show_auth" not in st.session_state: st.session_state.show_auth = False
 
 # =======================
-# 6. الواجهة الرئيسية
+# 5. الواجهة (Logic)
 # =======================
+
+# --- المستخدم المسجل ---
 if st.session_state.user_email:
-    # --- المسجلين ---
     c1, c2 = st.columns([4, 1])
     with c1: st.success(f"👋 أهلاً بك، **{st.session_state.user_name}**")
     with c2:
         if st.button("خروج"):
             st.session_state.user_email = None; st.session_state.user_name = None; st.session_state.pending_file = None; st.rerun()
 
-    # فحص صلاحية الأدمن
     users = load_json(USERS_FILE)
     curr_user = users.get(st.session_state.user_email, {})
     is_admin = curr_user.get("role") == "admin"
 
-    # التبويبات
     tabs_list = ["🏠 تحويل الملفات", "📜 سجل نشاطي", "⚙️ الإعدادات"]
     if is_admin: tabs_list.append("🛠️ لوحة الأدمن")
-    
     main_tabs = st.tabs(tabs_list)
 
     # 1. التحويل
@@ -221,37 +216,23 @@ if st.session_state.user_email:
                     st.success("تم التغيير")
                 else: st.error("كلمة المرور خطأ")
 
-    # 4. لوحة الأدمن (المطورة)
+    # 4. الأدمن
     if is_admin:
         with main_tabs[3]:
             st.header("🛠️ تحكم المدير")
-            
             admin_subtabs = st.tabs(["👥 إدارة الأعضاء", "➕ إنشاء حساب", "📊 سجلات النظام"])
-            
-            # --- إدارة الأعضاء ---
             with admin_subtabs[0]:
                 st.dataframe(pd.DataFrame(users).T.drop("password", axis=1), use_container_width=True)
-                st.divider()
-                
-                sel_user = st.selectbox("🔍 اختر مستخدم للتحكم به:", [u for u in users.keys() if u != "admin"])
-                
+                sel_user = st.selectbox("🔍 اختر مستخدم:", [u for u in users.keys() if u != "admin"])
                 if sel_user:
                     st.markdown(f"<div class='admin-card'>تعديل المستخدم: <b>{sel_user}</b></div>", unsafe_allow_html=True)
-                    
-                    # تعديل البيانات الأساسية
-                    with st.expander("✏️ تعديل البيانات (الاسم / الباسورد)"):
+                    with st.expander("✏️ تعديل البيانات"):
                         new_name = st.text_input("تعديل الاسم", value=users[sel_user].get("name", ""))
-                        new_pass_admin = st.text_input("تعيين كلمة مرور جديدة (اتركه فارغاً للإبقاء)", type="password")
+                        new_pass_admin = st.text_input("كلمة مرور جديدة", type="password")
                         if st.button("حفظ التعديلات"):
                             users[sel_user]["name"] = new_name
-                            if new_pass_admin:
-                                users[sel_user]["password"] = hash_pass(new_pass_admin)
-                            save_json(USERS_FILE, users)
-                            st.success("تم التحديث")
-                            time.sleep(1)
-                            st.rerun()
-
-                    # أزرار التحكم السريع
+                            if new_pass_admin: users[sel_user]["password"] = hash_pass(new_pass_admin)
+                            save_json(USERS_FILE, users); st.success("تم التحديث"); time.sleep(1); st.rerun()
                     col_a, col_b, col_c, col_d = st.columns(4)
                     with col_a:
                         is_blk = users[sel_user]["blocked"]
@@ -265,53 +246,49 @@ if st.session_state.user_email:
                         if st.button(f"{'لغي VIP' if is_vip else '⭐ VIP'}", use_container_width=True):
                             users[sel_user]["is_vip"] = not is_vip; save_json(USERS_FILE, users); st.rerun()
                     with col_d:
-                        # زر الحذف الخطير
                         if st.button("🗑️ حذف الحساب", type="primary", use_container_width=True):
-                            del users[sel_user]
-                            save_json(USERS_FILE, users)
-                            st.warning(f"تم حذف المستخدم {sel_user}")
-                            time.sleep(1)
-                            st.rerun()
-
-            # --- إنشاء حساب يدوي ---
+                            del users[sel_user]; save_json(USERS_FILE, users); st.warning("تم الحذف"); time.sleep(1); st.rerun()
             with admin_subtabs[1]:
                 with st.form("admin_create_user"):
-                    st.write("إضافة مستخدم جديد مباشرة (بدون تفعيل)")
-                    c_name = st.text_input("الاسم")
-                    c_email = st.text_input("البريد الإلكتروني")
-                    c_pass = st.text_input("كلمة المرور", type="password")
-                    c_vip = st.checkbox("حساب VIP؟")
-                    
-                    if st.form_submit_button("إضافة المستخدم"):
-                        if c_email in users:
-                            st.error("موجود مسبقاً")
-                        elif not c_email or not c_pass:
-                            st.error("أكمل البيانات")
+                    c_name = st.text_input("الاسم"); c_email = st.text_input("البريد"); c_pass = st.text_input("الرمز", type="password"); c_vip = st.checkbox("VIP?")
+                    if st.form_submit_button("إضافة"):
+                        if c_email in users: st.error("موجود")
                         else:
-                            users[c_email] = {
-                                "name": c_name, "password": hash_pass(c_pass),
-                                "daily_used": 0, "last_day": datetime.now().strftime("%Y-%m-%d"),
-                                "role": "user", "blocked": False, "is_vip": c_vip
-                            }
-                            save_json(USERS_FILE, users)
-                            st.success(f"تم إضافة {c_email} بنجاح")
-
-            # --- السجلات ---
+                            users[c_email] = {"name": c_name, "password": hash_pass(c_pass), "daily_used": 0, "last_day": datetime.now().strftime("%Y-%m-%d"), "role": "user", "blocked": False, "is_vip": c_vip}
+                            save_json(USERS_FILE, users); st.success(f"تم إضافة {c_email}")
             with admin_subtabs[2]:
                 all_logs = load_json(LOGS_FILE)
-                st.write(f"عدد العمليات: {len(all_logs)}")
-                for l in all_logs[:50]: # عرض آخر 50 فقط
+                for l in all_logs[:50]:
                     with st.expander(f"{l['timestamp']} | {l['email']}"):
                         st.write(f"الملف: {l['filename']}")
                         if l.get('archived_path') and os.path.exists(l['archived_path']):
-                            with open(l['archived_path'], "rb") as f:
-                                st.download_button("تحميل الملف الأصلي", f, file_name=f"ARC_{l['filename']}")
+                            with open(l['archived_path'], "rb") as f: st.download_button("تحميل الأصل", f, file_name=f"ARC_{l['filename']}")
 
-# --- الزوار ---
+# --- الزائر ---
 else:
+    # 1. ظهور التبويبات في البداية (طلبك)
+    if not st.session_state.show_auth:
+        st.markdown("##### 🔐 تسجيل الدخول / حساب جديد")
+        tab_top_1, tab_top_2 = st.tabs(["دخول", "إنشاء حساب"])
+        with tab_top_1:
+            l_em = st.text_input("الإيميل", key="top_l_em")
+            l_pa = st.text_input("الرمز", type="password", key="top_l_pa")
+            if st.button("دخول", key="top_l_btn"):
+                users = load_json(USERS_FILE)
+                if l_em in users and users[l_em]["password"] == hash_pass(l_pa):
+                    st.session_state.user_email = l_em; st.session_state.user_name = users[l_em].get("name", "")
+                    st.rerun()
+                else: st.error("خطأ")
+        with tab_top_2:
+            st.info("سجل الآن لتحصل على 5 تحويلات مجانية يومياً!")
+            if st.button("اذهب لنموذج التسجيل", key="goto_signup"):
+                st.session_state.show_auth = True # نظهر الفورم الكامل للتسجيل
+                st.rerun()
+        st.divider()
+
     st.markdown("### 📄 تحويل الملفات إلى PDF")
-    
     up_guest = st.file_uploader("ارفع ملفك هنا", type=["docx","xlsx","pptx"])
+    
     if up_guest:
         if st.button("بدء التحويل 🚀", type="primary", use_container_width=True):
             if not check_libreoffice(): st.error("LibreOffice Missing"); st.stop()
@@ -328,29 +305,31 @@ else:
                         st.session_state.pending_file = {"path": pp, "name": up_guest.name, "pdf_name": pn}
                         st.session_state.show_auth = True 
                         st.session_state.guest_log = {"name": "Guest", "email": "Pending", "file": up_guest.name, "arc": arc}
+                        st.rerun()
                     else: st.error("فشل التحويل.")
                 except Exception as e: st.error(f"Error: {e}")
 
+    # 2. ظهور التسجيل من الأسفل (بعد التحويل أو عند طلب التسجيل)
     if st.session_state.show_auth:
         st.markdown("""
         <div class="auth-popup">
-            <h3 style="text-align:center; color:#3b82f6;">✅ تم التحويل بنجاح!</h3>
-            <p style="text-align:center;">الملف جاهز. يرجى تسجيل الدخول أو إنشاء حساب لتحميله فوراً.</p>
+            <h3 style="text-align:center; color:#3b82f6;">🔐 منطقة التسجيل</h3>
+            <p style="text-align:center;">سجل الدخول لتحميل ملفك أو للاستفادة من الخدمات.</p>
         </div>
         """, unsafe_allow_html=True)
         
         with st.container():
-            t1, t2 = st.tabs(["🔐 تسجيل دخول", "✨ حساب جديد"])
+            t1, t2 = st.tabs(["دخول", "حساب جديد"])
             with t1:
-                l_em = st.text_input("البريد الإلكتروني", key="l_em_guest")
-                l_pa = st.text_input("كلمة المرور", type="password", key="l_pa_guest")
-                if st.button("دخول وتحميل الملف", use_container_width=True):
+                l_em = st.text_input("البريد الإلكتروني", key="btm_l_em")
+                l_pa = st.text_input("كلمة المرور", type="password", key="btm_l_pa")
+                if st.button("دخول", use_container_width=True, key="btm_l_btn"):
                     users = load_json(USERS_FILE)
                     if l_em in users and users[l_em]["password"] == hash_pass(l_pa):
                         st.session_state.user_email = l_em; st.session_state.user_name = users[l_em].get("name", "")
                         if "guest_log" in st.session_state:
-                            g = st.session_state.guest_log
-                            add_log(l_em, users[l_em]["name"], g["file"], "نجاح", g["arc"])
+                            g = st.session_state.guest_log; add_log(l_em, users[l_em]["name"], g["file"], "نجاح", g["arc"])
+                        st.session_state.show_auth = False
                         st.rerun()
                     else: st.error("بيانات خاطئة")
 
@@ -378,6 +357,6 @@ else:
                             st.session_state.user_email = d["email"]; st.session_state.user_name = d["name"]; st.session_state.otp_sent = False
                             if "guest_log" in st.session_state:
                                 g = st.session_state.guest_log; add_log(d["email"], d["name"], g["file"], "نجاح", g["arc"])
+                            st.session_state.show_auth = False
                             st.rerun()
                         else: st.error("الكود خطأ")
-
