@@ -18,28 +18,30 @@ st.markdown("""
     html, body, [class*="css"] {direction: rtl; font-family: 'Cairo', sans-serif;}
     .stButton>button {width: 100%; border-radius: 8px;}
     
-    .login-container {
-        padding: 2rem;
-        border-radius: 10px;
-        background-color: #f8f9fa;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        margin-bottom: 2rem;
-        text-align: center;
-    }
-    .guest-warning {
+    .locked-box {
         background-color: #fff3cd;
-        color: #856404;
-        padding: 10px;
-        border-radius: 5px;
         border: 1px solid #ffeeba;
-        margin-bottom: 10px;
+        color: #856404;
+        padding: 20px;
+        border-radius: 10px;
         text-align: center;
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
+    .success-box {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 15px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # =======================
-# 2. إدارة البيانات
+# 2. إدارة البيانات (JSON)
 # =======================
 USERS_FILE = "users.json"
 LOGS_FILE = "logs.json"
@@ -65,12 +67,13 @@ def save_json(filename, data):
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def add_log(username, filename, status, archived_path=None):
+def add_log(phone, name, filename, status, archived_path=None):
     logs = load_json(LOGS_FILE)
     if not isinstance(logs, list): logs = []
     entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user": username,
+        "phone": phone,
+        "name": name,
         "filename": filename,
         "status": status,
         "archived_path": archived_path
@@ -78,10 +81,11 @@ def add_log(username, filename, status, archived_path=None):
     logs.insert(0, entry)
     save_json(LOGS_FILE, logs)
 
-# التأكد من وجود أدمن
+# إعداد الأدمن (رقم الهاتف: admin)
 users = load_json(USERS_FILE)
 if "admin" not in users:
     users["admin"] = {
+        "name": "المدير العام",
         "password": hash_pass("admin123"),
         "daily_used": 0,
         "last_day": datetime.now().strftime("%Y-%m-%d"),
@@ -92,15 +96,15 @@ if "admin" not in users:
     save_json(USERS_FILE, users)
 
 # =======================
-# 3. دوال المنطق
+# 3. دوال النظام
 # =======================
 def check_libreoffice():
     if shutil.which("libreoffice") or shutil.which("soffice"): return True
     return False
 
-def can_convert(username):
+def can_convert(phone):
     users = load_json(USERS_FILE)
-    user = users.get(username)
+    user = users.get(phone)
     if not user: return False, "غير موجود"
     if user.get("blocked", False): return False, "محظور"
     if user.get("is_vip", False) or user.get("role") == "admin": return True, "VIP"
@@ -111,203 +115,249 @@ def can_convert(username):
         user["last_day"] = today
         save_json(USERS_FILE, users)
     
-    if user["daily_used"] >= 5: return False, "انتهى الرصيد"
+    if user["daily_used"] >= 5: return False, "انتهى رصيدك اليومي (5 ملفات)"
     return True, ""
 
-def update_usage(username):
+def update_usage(phone):
     users = load_json(USERS_FILE)
-    if username in users:
-        users[username]["daily_used"] += 1
+    if phone in users:
+        users[phone]["daily_used"] += 1
         save_json(USERS_FILE, users)
 
 # =======================
 # 4. إدارة الجلسة (Session)
 # =======================
-if "user" not in st.session_state:
-    st.session_state.user = None
+if "user_phone" not in st.session_state:
+    st.session_state.user_phone = None # رقم الهاتف هو المعرف
+if "user_name" not in st.session_state:
+    st.session_state.user_name = None
 
-# متغير لتتبع تجربة الزائر (المرة الواحدة)
-if "guest_used" not in st.session_state:
-    st.session_state.guest_used = False
+# متغير لتخزين الملف المحول الذي ينتظر التسجيل
+if "pending_file" not in st.session_state:
+    st.session_state.pending_file = None # {path: "...", name: "..."}
 
 # =======================
 # 5. الواجهة الرئيسية
 # =======================
 
-# ---------------------------------------------------------
-# الحالة A: المستخدم غير مسجل دخول + واستهلك التجربة المجانية
-# (يتم إجباره على التسجيل هنا)
-# ---------------------------------------------------------
-if st.session_state.user is None and st.session_state.guest_used:
-    st.markdown("<h1 style='text-align: center;'>🛑 انتهت التجربة المجانية</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center;'>لقد قمت بتحويل ملف واحد كزائر. يرجى تسجيل الدخول أو إنشاء حساب للمتابعة.</p>", unsafe_allow_html=True)
-    
-    tab_login, tab_signup = st.tabs(["🔑 تسجيل الدخول", "✨ إنشاء حساب جديد"])
-    
-    with tab_login:
-        st.markdown("<div class='login-container'>", unsafe_allow_html=True)
-        l_u = st.text_input("اسم المستخدم", key="l_u")
-        l_p = st.text_input("كلمة المرور", type="password", key="l_p")
-        if st.button("دخول", type="primary"):
-            users = load_json(USERS_FILE)
-            if l_u in users and users[l_u]["password"] == hash_pass(l_p):
-                st.session_state.user = l_u
-                st.rerun()
-            else:
-                st.error("بيانات خاطئة")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with tab_signup:
-        st.markdown("<div class='login-container'>", unsafe_allow_html=True)
-        n_u = st.text_input("اختر اسم مستخدم", key="n_u")
-        n_p = st.text_input("اختر كلمة مرور", type="password", key="n_p")
-        if st.button("تسجيل حساب جديد"):
-            users = load_json(USERS_FILE)
-            if n_u in users:
-                st.warning("الاسم مستخدم")
-            elif not n_u or not n_p:
-                st.warning("أكمل البيانات")
-            else:
-                users[n_u] = {
-                    "password": hash_pass(n_p),
-                    "daily_used": 0,
-                    "last_day": datetime.now().strftime("%Y-%m-%d"),
-                    "role": "user",
-                    "blocked": False,
-                    "is_vip": False
-                }
-                save_json(USERS_FILE, users)
-                st.success("تم الإنشاء! سجل دخولك الآن.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# الحالة B: المستخدم مسجل دخول (أو زائر لم يستهلك فرصته بعد)
-# ---------------------------------------------------------
-else:
-    # Header
+# --- شريط علوي ---
+if st.session_state.user_phone:
     c1, c2 = st.columns([5,1])
-    with c1:
-        if st.session_state.user:
-            st.success(f"مرحباً **{st.session_state.user}**")
-        else:
-            st.warning("👤 أنت تستخدم وضع الزائر (ملف واحد فقط)")
+    with c1: st.success(f"👤 أهلاً، **{st.session_state.user_name}**")
+    with c2: 
+        if st.button("خروج"):
+            st.session_state.user_phone = None
+            st.session_state.user_name = None
+            st.session_state.pending_file = None
+            st.rerun()
+else:
+    st.markdown("<h3 style='text-align: center;'>🔁 عون - محول الملفات</h3>", unsafe_allow_html=True)
+
+# =======================
+# 6. لوحة الأدمن (فقط للمدير)
+# =======================
+users = load_json(USERS_FILE)
+if st.session_state.user_phone and users.get(st.session_state.user_phone, {}).get("role") == "admin":
+    st.markdown("---")
+    st.title("🛠️ لوحة التحكم")
+    view = st.radio("القسم:", ["👥 المستخدمين", "📊 السجلات"], horizontal=True)
     
-    with c2:
-        if st.session_state.user:
-            if st.button("خروج"):
-                st.session_state.user = None
-                st.rerun()
-        else:
-            # زر إضافي لمن يريد التسجيل طواعية قبل التجربة
-            if st.button("دخول"):
-                st.session_state.guest_used = True # خدعة لتحويله لشاشة الدخول
-                st.rerun()
-
-    # --- Admin View ---
-    if st.session_state.user and users.get(st.session_state.user, {}).get("role") == "admin":
-        st.title("🛠️ لوحة التحكم")
-        admin_view = st.radio("القائمة:", ["👥 الأعضاء", "📊 السجلات"], horizontal=True)
+    if view == "👥 المستخدمين":
+        # عرض البيانات بشكل نظيف
+        clean_data = []
+        for ph, data in users.items():
+            if ph == "admin": continue
+            clean_data.append({
+                "رقم الهاتف": ph,
+                "الاسم": data.get("name", ""),
+                "الاستهلاك": data.get("daily_used", 0),
+                "محظور": data.get("blocked", False),
+                "VIP": data.get("is_vip", False)
+            })
+        st.dataframe(pd.DataFrame(clean_data), use_container_width=True)
         
-        if admin_view == "👥 الأعضاء":
-            users = load_json(USERS_FILE)
-            df = pd.DataFrame(users).T.drop("password", axis=1)
-            st.dataframe(df, use_container_width=True)
-            sel_user = st.selectbox("تعديل عضو:", [u for u in users.keys() if u != "admin"])
-            if sel_user:
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    if st.button("حظر/فك", key="blk", use_container_width=True):
-                        users[sel_user]["blocked"] = not users[sel_user]["blocked"]
-                        save_json(USERS_FILE, users)
-                        st.rerun()
-                with c2:
-                    if st.button("تصفير", key="rst", use_container_width=True):
-                        users[sel_user]["daily_used"] = 0
-                        save_json(USERS_FILE, users)
-                        st.rerun()
-                with c3:
-                    is_vip = users[sel_user].get("is_vip", False)
-                    if st.button("VIP", key="vip", use_container_width=True):
-                        users[sel_user]["is_vip"] = not is_vip
-                        save_json(USERS_FILE, users)
-                        st.rerun()
+        st.divider()
+        st.caption("تعديل مستخدم:")
+        sel_ph = st.selectbox("اختر برقم الهاتف:", [k for k in users.keys() if k != "admin"])
+        if sel_ph:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                is_blk = users[sel_ph]["blocked"]
+                if st.button(f"{'فك الحظر' if is_blk else '⛔ حظر'}", key="blk", use_container_width=True):
+                    users[sel_ph]["blocked"] = not is_blk
+                    save_json(USERS_FILE, users)
+                    st.rerun()
+            with c2:
+                if st.button("🔄 تصفير العداد", key="rst", use_container_width=True):
+                    users[sel_ph]["daily_used"] = 0
+                    save_json(USERS_FILE, users)
+                    st.rerun()
+            with c3:
+                is_vip = users[sel_ph].get("is_vip", False)
+                if st.button(f"{'إلغاء VIP' if is_vip else '⭐ ترقية VIP'}", key="vip", use_container_width=True):
+                    users[sel_ph]["is_vip"] = not is_vip
+                    save_json(USERS_FILE, users)
+                    st.rerun()
 
-        elif admin_view == "📊 السجلات":
-            logs = load_json(LOGS_FILE)
-            for l in logs:
-                with st.expander(f"{l['timestamp']} - {l['user']}"):
-                    st.write(f"ملف: {l['filename']} - حالة: {l['status']}")
-                    if l.get("archived_path") and os.path.exists(l["archived_path"]):
-                        with open(l["archived_path"], "rb") as f:
-                            st.download_button("تحميل", f, file_name=f"ARC_{l['filename']}")
-            if st.button("مسح الأرشيف"):
-                shutil.rmtree(ARCHIVE_DIR)
-                os.makedirs(ARCHIVE_DIR)
-                st.rerun()
+    elif view == "📊 السجلات":
+        logs = load_json(LOGS_FILE)
+        for l in logs:
+            with st.expander(f"{l['timestamp']} | {l['name']} ({l['phone']})"):
+                st.write(f"📂 الملف: {l['filename']}")
+                st.write(f"النتيجة: {l['status']}")
+                if l.get("archived_path") and os.path.exists(l["archived_path"]):
+                    with open(l["archived_path"], "rb") as f:
+                        st.download_button("📥 تحميل الأصل", f, file_name=f"ARC_{l['filename']}")
+        
+        if st.button("🗑️ حذف الأرشيف", type="primary"):
+            shutil.rmtree(ARCHIVE_DIR)
+            os.makedirs(ARCHIVE_DIR)
+            st.rerun()
 
-    # --- Converter View ---
+# =======================
+# 7. واجهة التحويل (للكل)
+# =======================
+else:
+    # التحقق من LibreOffice
+    if not check_libreoffice():
+        st.error("⚠️ خطأ بالنظام: LibreOffice غير مثبت.")
+        st.stop()
+
+    # إذا كان هناك ملف معلق (تم تحويله ولكن لم يسجل الدخول بعد)
+    if st.session_state.pending_file and not st.session_state.user_phone:
+        st.markdown(f"""
+        <div class="success-box">
+            ✅ تم تحويل الملف: <b>{st.session_state.pending_file['name']}</b> بنجاح!
+        </div>
+        <div class="locked-box">
+            🔒 <b>الملف جاهز للتحميل</b><br>
+            من فضلك قم بتسجيل بياناتك بالأسفل لتحميل الملف فوراً.
+        </div>
+        """, unsafe_allow_html=True)
+
+        # فورم التسجيل/الدخول الإجباري
+        t1, t2 = st.tabs(["تسجيل جديد (أول مرة)", "دخول (لدي حساب)"])
+        
+        with t1:
+            r_name = st.text_input("الاسم الثلاثي", key="r_n")
+            r_phone = st.text_input("رقم الهاتف (سيكون اسم المستخدم)", key="r_ph")
+            r_pass = st.text_input("كلمة المرور", type="password", key="r_p")
+            
+            if st.button("تسجيل وتحميل الملف 🚀", type="primary"):
+                users = load_json(USERS_FILE)
+                if r_phone in users:
+                    st.warning("رقم الهاتف مسجل مسبقاً، حاول تسجيل الدخول.")
+                elif not r_name or not r_phone or not r_pass:
+                    st.warning("جميع البيانات مطلوبة.")
+                else:
+                    # إنشاء حساب
+                    users[r_phone] = {
+                        "name": r_name,
+                        "password": hash_pass(r_pass),
+                        "daily_used": 0, # سيتم خصم 1 لاحقاً
+                        "last_day": datetime.now().strftime("%Y-%m-%d"),
+                        "role": "user",
+                        "blocked": False,
+                        "is_vip": False
+                    }
+                    save_json(USERS_FILE, users)
+                    # تسجيل دخول تلقائي
+                    st.session_state.user_phone = r_phone
+                    st.session_state.user_name = r_name
+                    st.rerun()
+
+        with t2:
+            l_phone = st.text_input("رقم الهاتف", key="l_ph")
+            l_pass = st.text_input("كلمة المرور", type="password", key="l_p")
+            if st.button("دخول وتحميل"):
+                users = load_json(USERS_FILE)
+                if l_phone in users and users[l_phone]["password"] == hash_pass(l_pass):
+                    st.session_state.user_phone = l_phone
+                    st.session_state.user_name = users[l_phone].get("name", "مستخدم")
+                    st.rerun()
+                else:
+                    st.error("بيانات خاطئة")
+
+    # إذا كان المستخدم مسجل دخول ولديه ملف معلق (أو يرفع ملف جديد)
     else:
-        st.markdown("## 🔁 محول الملفات")
-        if not check_libreoffice():
-            st.error("النظام يفتقد LibreOffice")
-            st.stop()
+        # إذا كان هناك ملف معلق وتم تسجيل الدخول للتو -> أظهر زر التحميل
+        if st.session_state.pending_file:
+            st.markdown(f"<div class='success-box'>🎉 أهلاً {st.session_state.user_name}، ملفك جاهز!</div>", unsafe_allow_html=True)
             
-        uploaded_file = st.file_uploader("ارفع ملفك (Word, Excel, PPT)", type=["docx", "doc", "pptx", "ppt", "xlsx", "xls"])
-
-        if uploaded_file and st.button("تحويل 🚀", type="primary"):
-            
-            # 1. التحقق من الصلاحيات
-            if st.session_state.user:
-                # للمسجلين: تطبيق قوانين الحد اليومي
-                allowed, msg = can_convert(st.session_state.user)
-                if not allowed:
-                    st.error(msg)
-                    add_log(st.session_state.user, uploaded_file.name, "فشل (الحد)", None)
-                    st.stop()
-                current_user_name = st.session_state.user
+            p_file = st.session_state.pending_file
+            if os.path.exists(p_file["path"]):
+                with open(p_file["path"], "rb") as f:
+                    st.download_button(
+                        label="⬇️ تحميل الملف الآن",
+                        data=f,
+                        file_name=p_file["pdf_name"],
+                        mime="application/pdf",
+                        type="primary"
+                    )
+                
+                # زر لبدء ملف جديد
+                if st.button("تحويل ملف آخر"):
+                    st.session_state.pending_file = None
+                    update_usage(st.session_state.user_phone) # خصم الرصيد عند استلام الملف
+                    st.rerun()
             else:
-                # للزوار: السماح بالمرور (سنقوم بالحظر بعد التحويل)
-                current_user_name = "Guest_User"
+                st.error("عذراً، انتهت صلاحية الملف. حاول رفعه مرة أخرى.")
+                st.session_state.pending_file = None
 
-            with st.spinner("جاري التحويل..."):
-                uid = str(uuid.uuid4())
-                work = os.path.join(TEMP_DIR, uid)
-                os.makedirs(work, exist_ok=True)
-                
-                in_path = os.path.join(work, uploaded_file.name)
-                with open(in_path, "wb") as f: f.write(uploaded_file.getbuffer())
-                
-                # أرشفة
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                arc_path = os.path.join(ARCHIVE_DIR, f"{ts}_{current_user_name}_{uploaded_file.name}")
-                shutil.copy(in_path, arc_path)
+        # واجهة الرفع العادية (إذا لم يكن هناك ملف جاهز)
+        else:
+            if st.session_state.user_phone:
+                st.info(f"رصيدك اليومي المتبقي: {5 - users[st.session_state.user_phone].get('daily_used', 0)}")
+            
+            uploaded_file = st.file_uploader("ارفع ملف (Word, Excel, PPT)", type=["docx", "doc", "pptx", "ppt", "xlsx", "xls"])
 
-                try:
-                    subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", in_path, "--outdir", work], check=True)
-                    pdf_name = uploaded_file.name.rsplit(".", 1)[0] + ".pdf"
-                    pdf_path = os.path.join(work, pdf_name)
+            if uploaded_file and st.button("تحويل 🚀", type="primary"):
+                # 1. إذا كان مسجل دخول، تحقق من الرصيد أولاً
+                if st.session_state.user_phone:
+                    allowed, msg = can_convert(st.session_state.user_phone)
+                    if not allowed:
+                        st.error(msg)
+                        st.stop()
+
+                # 2. عملية التحويل (تتم للجميع سواء زائر أو مسجل)
+                with st.spinner("جاري التحويل..."):
+                    uid = str(uuid.uuid4())
+                    work_dir = os.path.join(TEMP_DIR, uid)
+                    os.makedirs(work_dir, exist_ok=True)
                     
-                    if os.path.exists(pdf_path):
-                        st.success("✅ تم التحويل بنجاح!")
+                    in_path = os.path.join(work_dir, uploaded_file.name)
+                    with open(in_path, "wb") as f: f.write(uploaded_file.getbuffer())
+                    
+                    # الأرشفة (مطلوبة للأدمن) - نسجلها باسم مؤقت إذا كان زائر
+                    u_name = st.session_state.user_name if st.session_state.user_name else "Guest"
+                    u_phone = st.session_state.user_phone if st.session_state.user_phone else "Unknown"
+                    
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    arc_path = os.path.join(ARCHIVE_DIR, f"{ts}_{u_phone}_{uploaded_file.name}")
+                    shutil.copy(in_path, arc_path)
+
+                    try:
+                        subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", in_path, "--outdir", work_dir], check=True)
+                        pdf_name = uploaded_file.name.rsplit(".", 1)[0] + ".pdf"
+                        pdf_path = os.path.join(work_dir, pdf_name)
                         
-                        # زر التحميل
-                        with open(pdf_path, "rb") as f:
-                            st.download_button("📥 تحميل PDF", f, file_name=pdf_name)
-                        
-                        # تحديث السجلات
-                        if st.session_state.user:
-                            update_usage(st.session_state.user)
+                        if os.path.exists(pdf_path):
+                            # تم التحويل بنجاح!
+                            # حفظ البيانات في الـ Session
+                            st.session_state.pending_file = {
+                                "path": pdf_path,
+                                "name": uploaded_file.name,
+                                "pdf_name": pdf_name,
+                                "archive": arc_path
+                            }
+                            
+                            # تسجيل السجل
+                            add_log(u_phone, u_name, uploaded_file.name, "نجاح (بانتظار التحميل)", arc_path)
+                            
+                            # إعادة تشغيل الصفحة لتفعيل منطق "الملف المعلق"
+                            st.rerun()
                         else:
-                            # ⚠️ هنا اللحظة الحاسمة للزائر
-                            # نقوم بتسجيل أنه استخدم فرصته
-                            st.session_state.guest_used = True
-                            st.warning("⚠️ كانت هذه تجربتك المجانية الوحيدة. يرجى تحميل الملف الآن، لأنه سيطلب منك التسجيل في المرة القادمة.")
-                        
-                        add_log(current_user_name, uploaded_file.name, "نجاح", arc_path)
-                    else:
-                        st.error("فشل التحويل")
-                except Exception as e:
-                    st.error(f"خطأ: {e}")
-                
-                shutil.rmtree(work, ignore_errors=True)
+                            st.error("فشل التحويل من المصدر.")
+                    except Exception as e:
+                        st.error(f"حدث خطأ: {e}")
 
