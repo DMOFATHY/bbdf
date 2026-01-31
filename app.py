@@ -85,7 +85,7 @@ st.markdown("""
 <div class="dedication-box">
     <div style="font-size: 1.3rem; font-weight: bold; margin-bottom: 10px;">🤲 صدقة جارية</div>
     <p>موهوب ثوابه إلى أرواح المغفور لهم بإذن الله:</p>
-    <p style="font-weight:bold; color:#15803d;">جدتي، والأستاذ/ أحمد أمجد، والأستاذ/ محمود جمال</p>
+    <p style="font-weight:bold; color:#15803d;"> جدتي، زميلنا احمد أمجد وزميلنا محمود جمال</p>
     <p style="font-family:'Amiri'; font-size:1.1rem;">"اللهم اغفر لهم وارحمهم، وأكرم نزلهم، واجعل قبورهم روضة من رياض الجنة."</p>
 </div>
 """, unsafe_allow_html=True)
