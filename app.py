@@ -20,7 +20,7 @@ SENDER_PASSWORD = "fxns iuta umlu fprn"
 
 def send_email_otp(receiver_email, otp_code):
     msg = MIMEText(f"كود التفعيل: {otp_code}", 'plain', 'utf-8')
-    msg['Subject'] = "كود تفعيل حساب عون"
+    msg['Subject'] = " كود تفعيل حساب عون وصلي علي النبي "
     msg['From'] = SENDER_EMAIL
     msg['To'] = receiver_email
     try:
@@ -74,7 +74,7 @@ st.markdown("""
 # =======================
 st.markdown("""
 <div class="features-banner">
-    🚀 <b>أهلاً بك في عون (خدمة مجانية بالكامل)</b><br>
+    🚀 <b>أهلاً بك في عون (خدمة مجانية بالكامل وصلي علي النبي )</b><br>
     ✅ <b>تحويل غير محدود للجميع (زوار وأعضاء).</b><br>
     📂 <b>سجل حساباً الآن لتحفظ ملفاتك وتعود إليها لاحقاً!</b>
 </div>
@@ -84,7 +84,7 @@ st.markdown("""
 <div class="dedication-box">
     <div style="font-size: 1.3rem; font-weight: bold; margin-bottom: 10px;">🤲 صدقة جارية</div>
     <p>موهوب ثوابه إلى أرواح المغفور لهم بإذن الله:</p>
-    <p style="font-weight:bold; color:#15803d;">جدتي، والأستاذ/ أحمد أمجد، والأستاذ/ محمود جمال</p>
+    <p style="font-weight:bold; color:#15803d;">جدتي، وزميلنا أحمد أمجد، وزميلنا  محمود جمال</p>
 </div>
 """, unsafe_allow_html=True)
 
