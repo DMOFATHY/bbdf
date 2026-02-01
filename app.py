@@ -60,6 +60,12 @@ st.markdown("""
         border-radius: 8px; margin-bottom: 8px; display: flex;
         justify-content: space-between; align-items: center;
     }
+    .vip-badge {
+        color: #3b82f6; font-weight: bold; margin-right: 5px;
+    }
+    .blocked-user {
+        background-color: #fef2f2; border: 1px solid #fee2e2;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -117,13 +123,13 @@ def add_log(email, name, filename, status, archived_path=None):
     save_json(LOGS_FILE, logs)
 
 users = load_json(USERS_FILE)
+# التأكد من وجود الأدمن
 if "admin" not in users:
     users["admin"] = {"name": "Admin", "password": hash_pass("admin123"), "daily_used": 0, "last_day": datetime.now().strftime("%Y-%m-%d"), "role": "admin", "blocked": False, "is_vip": True}
     save_json(USERS_FILE, users)
 
 def check_libreoffice(): return shutil.which("libreoffice") or shutil.which("soffice")
 
-# دالة تحديث الإحصائيات فقط (بدون منع)
 def increment_stats(email):
     users = load_json(USERS_FILE)
     if email in users:
@@ -145,6 +151,10 @@ if not st.session_state.user_email and url_token:
         if token_data == url_token:
             users = load_json(USERS_FILE)
             if email in users:
+                # التحقق من الحظر أثناء الدخول التلقائي
+                if users[email].get("blocked", False):
+                    st.error("⛔ هذا الحساب محظور من قبل الإدارة.")
+                    st.stop()
                 st.session_state.user_email = email
                 st.session_state.user_name = users[email]["name"]
                 st.toast(f"مرحباً {users[email]['name']}", icon="👋")
@@ -155,20 +165,29 @@ if not st.session_state.user_email and url_token:
 
 # --- إذا كان المستخدم مسجلاً ---
 if st.session_state.user_email:
+    users = load_json(USERS_FILE)
+    curr_user = users.get(st.session_state.user_email, {})
+    
+    # التحقق المزدوج من الحظر (في حال تم الحظر وهو داخل الموقع)
+    if curr_user.get("blocked", False):
+        st.error("⛔ تم حظر حسابك. يرجى التواصل مع الإدارة.")
+        st.session_state.user_email = None
+        st.rerun()
+
+    is_admin = curr_user.get("role") == "admin"
+    is_vip = curr_user.get("is_vip", False)
+    vip_badge = "🔹" if is_vip else ""
+
     c1, c2 = st.columns([4, 1])
-    with c1: st.success(f"👤 مرحباً، **{st.session_state.user_name}**")
+    with c1: st.success(f"👤 مرحباً، **{st.session_state.user_name}** {vip_badge}")
     with c2:
         if st.button("خروج"):
             st.session_state.user_email = None; st.session_state.user_name = None
             st.query_params.clear()
             st.rerun()
 
-    users = load_json(USERS_FILE)
-    curr_user = users.get(st.session_state.user_email, {})
-    is_admin = curr_user.get("role") == "admin"
-
     tabs_list = ["🏠 تحويل جديد", "📂 سجل ملفاتي (History)", "⚙️ الإعدادات"]
-    if is_admin: tabs_list.append("🛠️ الأدمن")
+    if is_admin: tabs_list.append("🛠️ لوحة الأدمن")
     main_tabs = st.tabs(tabs_list)
 
     # 1. التحويل (عضو)
@@ -180,6 +199,8 @@ if st.session_state.user_email:
                 uid = str(uuid.uuid4()); wd = os.path.join(TEMP_DIR, uid); os.makedirs(wd, exist_ok=True)
                 ip = os.path.join(wd, up.name); 
                 with open(ip, "wb") as f: f.write(up.getbuffer())
+                
+                # حفظ نسخة في الأرشيف
                 arc = os.path.join(ARCHIVE_DIR, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{st.session_state.user_email}_{up.name}")
                 shutil.copy(ip, arc)
                 
@@ -187,7 +208,6 @@ if st.session_state.user_email:
                     subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", ip, "--outdir", wd], check=True)
                     pn = up.name.rsplit(".", 1)[0] + ".pdf"; pp = os.path.join(wd, pn)
                     if os.path.exists(pp):
-                        # إضافة للسجل + تحديث العداد
                         add_log(st.session_state.user_email, st.session_state.user_name, up.name, "نجاح ✅", arc)
                         increment_stats(st.session_state.user_email)
                         
@@ -197,16 +217,14 @@ if st.session_state.user_email:
                     else: st.error("فشل التحويل")
                 except Exception as e: st.error(f"Error: {e}")
 
-    # 2. السجل (الميزة الأساسية للمسجلين)
+    # 2. السجل
     with main_tabs[1]:
         st.subheader("📜 أرشيف ملفاتك")
         all_logs = load_json(LOGS_FILE)
-        # تصفية السجلات لهذا المستخدم فقط
         my_logs = [l for l in all_logs if l.get('email') == st.session_state.user_email]
         
         if my_logs:
             for l in my_logs:
-                # عرض بطاقة لكل ملف
                 with st.container():
                     st.markdown(f"""
                     <div class="history-card">
@@ -219,19 +237,17 @@ if st.session_state.user_email:
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    # زر تحميل من الأرشيف (إذا كان ناجحاً والملف موجود)
                     if l.get('archived_path') and os.path.exists(l['archived_path']) and 'نجاح' in l['status']:
-                         # ملاحظة: هنا نحمل الملف الأصلي (Word) المحفوظ، لأن الـ PDF المؤقت يحذف
-                         # لو أردت حفظ الـ PDF للأبد ستحتاج مساحة تخزين ضخمة.
                          with open(l['archived_path'], "rb") as f:
-                             st.download_button("📥 تحميل الأصل", f, file_name=l['filename'], key=l['timestamp'])
+                             st.download_button("📥 تحميل الأصل", f, file_name=l['filename'], key=f"dl_{l['timestamp']}")
         else:
             st.info("لا توجد تحويلات سابقة.")
 
     # 3. الإعدادات
     with main_tabs[2]:
         st.write(f"إجمالي تحويلاتك: {curr_user.get('daily_used', 0)}")
+        if is_vip: st.success("🌟 أنت عضو موثق (VIP)")
+        
         with st.form("pass_change"):
             st.write("تغيير كلمة المرور")
             n_p = st.text_input("كلمة مرور جديدة", type="password")
@@ -240,14 +256,75 @@ if st.session_state.user_email:
                 save_json(USERS_FILE, users)
                 st.success("تم التحديث")
 
-    # 4. الأدمن
+    # 4. الأدمن (المحدثة)
     if is_admin:
         with main_tabs[3]:
-            st.dataframe(pd.DataFrame(users).T)
+            admin_tabs = st.tabs(["👥 إدارة الأعضاء", "📂 كل الملفات"])
+            
+            # --- تبويب إدارة الأعضاء ---
+            with admin_tabs[0]:
+                st.write("### التحكم بالأعضاء")
+                
+                # تحويل القاموس لقائمة لسهولة العرض
+                for u_email, u_data in users.items():
+                    if u_data['role'] == 'admin': continue # تخطي الأدمن
+                    
+                    with st.expander(f"{u_data['name']} ({u_email})", expanded=False):
+                        c1, c2, c3 = st.columns(3)
+                        
+                        # حالة العضو
+                        is_blocked = u_data.get('blocked', False)
+                        is_user_vip = u_data.get('is_vip', False)
+                        
+                        with c1:
+                            st.write(f"**الحالة:** {'⛔ محظور' if is_blocked else '✅ نشط'}")
+                            st.write(f"**التوثيق:** {'🔹 VIP' if is_user_vip else 'عادي'}")
+                        
+                        with c2:
+                            # زر الحظر/فك الحظر
+                            btn_label = "🔓 فك الحظر" if is_blocked else "⛔ حظر العضو"
+                            if st.button(btn_label, key=f"blk_{u_email}"):
+                                users[u_email]['blocked'] = not is_blocked
+                                save_json(USERS_FILE, users)
+                                st.rerun()
+                        
+                        with c3:
+                            # زر التوثيق/إلغاء التوثيق
+                            vip_label = "➖ إلغاء VIP" if is_user_vip else "🌟 منح VIP"
+                            if st.button(vip_label, key=f"vip_{u_email}"):
+                                users[u_email]['is_vip'] = not is_user_vip
+                                save_json(USERS_FILE, users)
+                                st.rerun()
+
+            # --- تبويب إدارة الملفات ---
+            with admin_tabs[1]:
+                st.write("### 📂 أرشيف جميع الملفات")
+                all_logs_admin = load_json(LOGS_FILE)
+                
+                if not all_logs_admin:
+                    st.info("لا توجد ملفات في السجل")
+                else:
+                    # تحويل السجل لإطار بيانات للعرض السريع
+                    df_logs = pd.DataFrame(all_logs_admin)
+                    st.dataframe(df_logs[['timestamp', 'name', 'email', 'filename', 'status']], use_container_width=True)
+                    
+                    st.divider()
+                    st.write("**📥 تحميل ملفات الأعضاء:**")
+                    
+                    # حلقة لعرض أزرار التحميل
+                    for log in all_logs_admin:
+                        path = log.get('archived_path')
+                        if path and os.path.exists(path):
+                            col_a, col_b = st.columns([3, 1])
+                            with col_a:
+                                st.text(f"📄 {log['filename']} - {log['name']}")
+                            with col_b:
+                                with open(path, "rb") as f:
+                                    st.download_button("تحميل", f, file_name=f"ADMIN_COPY_{log['filename']}", key=f"adm_dl_{log['timestamp']}")
+                            st.divider()
 
 # --- إذا كان زائراً (Guest) ---
 else:
-    # تبويبات الدخول (اختياري)
     with st.expander("🔓 لديك حساب؟ تسجيل الدخول (لعرض السجل)", expanded=False):
         t1, t2 = st.tabs(["دخول", "إنشاء حساب"])
         with t1:
@@ -257,18 +334,23 @@ else:
             if st.button("دخول", key="g_btn"):
                 users = load_json(USERS_FILE)
                 if l_e in users and users[l_e]["password"] == hash_pass(l_p):
-                    st.session_state.user_email = l_e; st.session_state.user_name = users[l_e]["name"]
-                    if rem:
-                        tk = str(uuid.uuid4()); ts = load_json(TOKENS_FILE); ts[l_e] = tk; save_json(TOKENS_FILE, ts)
-                        st.query_params["auth_token"] = tk
-                    st.rerun()
-                else: st.error("خطأ")
+                    # التحقق من الحظر
+                    if users[l_e].get("blocked", False):
+                        st.error("⛔ عذراً، تم حظر هذا الحساب. تواصل مع الدعم.")
+                    else:
+                        st.session_state.user_email = l_e
+                        st.session_state.user_name = users[l_e]["name"]
+                        if rem:
+                            tk = str(uuid.uuid4()); ts = load_json(TOKENS_FILE); ts[l_e] = tk; save_json(TOKENS_FILE, ts)
+                            st.query_params["auth_token"] = tk
+                        st.rerun()
+                else: st.error("خطأ في البيانات")
         with t2:
             if not st.session_state.otp_sent:
                 r_n = st.text_input("الاسم"); r_e = st.text_input("الإيميل"); r_p = st.text_input("رمز جديد")
                 if st.button("إرسال الكود 📨"):
                     users = load_json(USERS_FILE)
-                    if r_e in users: st.warning("مسجل")
+                    if r_e in users: st.warning("مسجل مسبقاً")
                     else:
                         c = str(random.randint(1000,9999))
                         if send_email_otp(r_e, c):
@@ -283,6 +365,7 @@ else:
                         save_json(USERS_FILE, users)
                         st.session_state.user_email = d["email"]; st.session_state.user_name = d["name"]; st.session_state.otp_sent = False
                         st.rerun()
+                    else: st.error("الكود غير صحيح")
 
     st.markdown("### 📄 تحويل ملفات (غير محدود)")
     up_guest = st.file_uploader("ارفع ملفك هنا", type=["docx","xlsx","pptx"])
@@ -295,7 +378,6 @@ else:
                 ip = os.path.join(wd, up_guest.name); 
                 with open(ip, "wb") as f: f.write(up_guest.getbuffer())
                 
-                # التحويل
                 try:
                     subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", ip, "--outdir", wd], check=True)
                     pn = up_guest.name.rsplit(".", 1)[0] + ".pdf"; pp = os.path.join(wd, pn)
@@ -303,8 +385,6 @@ else:
                         st.success("✅ تم التحويل بنجاح")
                         with open(pp, "rb") as f:
                             st.download_button("⬇️ تحميل PDF", f, file_name=pn, mime="application/pdf", type="primary", use_container_width=True)
-                        
-                        # دعوة للتسجيل (غير مزعجة)
                         st.info("💡 نصيحة: هل تريد حفظ هذا الملف في سجلك؟ قم بتسجيل الدخول بالأعلى.")
                     else: st.error("فشل التحويل")
                 except Exception as e: st.error(f"Error: {e}")
